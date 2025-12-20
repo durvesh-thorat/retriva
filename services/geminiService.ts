@@ -2,7 +2,15 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Moved initialization inside functions to prevent white-screen on load if env vars are missing
+const getAI = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    // This specific error message is caught by the ErrorBoundary in index.tsx
+    throw new Error("API Key must be set. Please check Vercel Environment Variables.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 // Model Cascade List: Primary -> Fallbacks
 // 1. Gemini 3 Flash (Fastest, Newest)
@@ -25,6 +33,14 @@ const generateWithCascade = async (
   params: any
 ): Promise<GenerateContentResponse> => {
   let lastError: any;
+  // Initialize AI client lazily
+  let ai;
+  try {
+    ai = getAI();
+  } catch (e) {
+    console.error("Gemini Client Init Failed:", e);
+    throw e;
+  }
 
   for (const modelName of MODEL_CASCADE) {
     try {
@@ -106,7 +122,8 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     return response.text ? JSON.parse(response.text) : { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "" };
   } catch (e) {
     console.error("Instant check failed", e);
-    return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "" };
+    // Return safe default so app doesn't crash on one failed check
+    return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
 
@@ -194,6 +211,9 @@ export const analyzeItemDescription = async (
     };
   } catch (error) {
     console.error("AI Analysis Error", error);
+    // Throw if it's an API key error so the boundary catches it, otherwise fail gracefully
+    if (error instanceof Error && error.message.includes('API Key')) throw error;
+    
     return { 
       isViolating: false,
       isPrank: false, 
