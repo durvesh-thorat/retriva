@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, User, Message } from '../types';
-import { Send, Search, ArrowLeft, MessageCircle, CheckCheck, Paperclip, Phone, PhoneOff, Mic, MicOff, File, ShieldBan, ShieldCheck, Lock, Globe, Users } from 'lucide-react';
+import { Send, Search, ArrowLeft, MessageCircle, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users } from 'lucide-react';
 
 interface ChatViewProps {
   user: User;
@@ -19,25 +19,9 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // State
-  const [isCalling, setIsCalling] = useState(false);
-  const [callDuration, setCallDuration] = useState(0);
-  const [callStatus, setCallStatus] = useState<'ringing' | 'connected' | 'ended'>('ringing');
-  const [isMuted, setIsMuted] = useState(false);
-
   const selectedChat = chats.find(c => c.id === activeChatId);
   const isBlocked = selectedChat?.isBlocked || false;
   const isGlobal = selectedChat?.type === 'global';
-
-  useEffect(() => {
-    let interval: any;
-    if (isCalling && callStatus === 'connected') {
-      interval = setInterval(() => {
-        setCallDuration(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isCalling, callStatus]);
 
   useEffect(() => {
     // Auto-scroll to bottom of messages
@@ -45,24 +29,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [selectedChat?.messages, activeChatId]);
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleStartCall = () => {
-    if (!selectedChat || isBlocked || isGlobal) return;
-    setIsCalling(true);
-    setCallStatus('ringing');
-    setTimeout(() => setCallStatus('connected'), 2000);
-  };
-
-  const handleEndCall = () => {
-    setCallStatus('ended');
-    setTimeout(() => { setIsCalling(false); setCallStatus('ringing'); setCallDuration(0); }, 500);
-  };
 
   const handleSendMessage = (e?: React.FormEvent, attachment?: Message['attachment']) => {
     if (e) e.preventDefault();
@@ -102,36 +68,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   return (
     <div className="h-[calc(100vh-160px)] bg-white dark:bg-slate-900 rounded-[2rem] shadow-xl shadow-slate-200/50 dark:shadow-none overflow-hidden border border-slate-100 dark:border-slate-800 flex relative">
       
-      {/* Voice Call Overlay */}
-      {isCalling && selectedChat && (
-        <div className="absolute inset-0 z-50 bg-slate-900/95 flex flex-col items-center justify-center animate-fade-in backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-8 mb-12">
-            <div className="relative">
-               <div className="w-32 h-32 rounded-full bg-slate-800 flex items-center justify-center text-white text-5xl font-bold shadow-2xl border-4 border-slate-700">
-                 {selectedChat.itemTitle.charAt(0)}
-               </div>
-               {callStatus === 'ringing' && <div className="absolute inset-0 rounded-full border-2 border-brand-violet/50 animate-ping"></div>}
-            </div>
-            
-            <div className="text-center">
-              <h2 className="text-3xl font-bold text-white mb-2">{selectedChat.itemTitle}</h2>
-              <p className="text-indigo-300 font-medium">
-                {callStatus === 'ringing' ? 'Calling...' : callStatus === 'ended' ? 'Call Ended' : formatDuration(callDuration)}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-8">
-             <button onClick={() => setIsMuted(!isMuted)} className={`p-5 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>
-               {isMuted ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
-             </button>
-             <button onClick={handleEndCall} className="p-5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all transform hover:scale-110 shadow-lg shadow-red-500/30">
-               <PhoneOff className="w-8 h-8" />
-             </button>
-          </div>
-        </div>
-      )}
-
       {/* Sidebar - Chat List */}
       <div className={`w-full md:w-80 border-r border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col ${activeChatId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-5 border-b border-slate-100 dark:border-slate-800">
@@ -245,20 +181,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                     >
                       {isBlocked ? <ShieldCheck className="w-5 h-5" /> : <ShieldBan className="w-5 h-5" />}
                     </button>
-                 )}
-
-                 {!isGlobal && (
-                   <button 
-                     onClick={handleStartCall} 
-                     disabled={isBlocked}
-                     className={`p-2.5 rounded-full transition-colors ${
-                       isBlocked 
-                         ? 'opacity-30 cursor-not-allowed text-slate-400' 
-                         : 'hover:bg-indigo-50 dark:hover:bg-slate-800 text-brand-violet'
-                     }`}
-                    >
-                     <Phone className="w-5 h-5" />
-                   </button>
                  )}
                </div>
             </div>
