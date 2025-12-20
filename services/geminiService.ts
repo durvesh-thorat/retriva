@@ -2,9 +2,28 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 
-// Moved initialization inside functions to prevent white-screen on load if env vars are missing
+// Helper to safely get the API Key from various environment configurations (Vite, Next.js, Webpack)
+const getApiKey = (): string | undefined => {
+  // 1. Try process.env (Standard/Webpack/Next.js)
+  try {
+    if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
+  } catch (e) {}
+
+  // 2. Try import.meta.env (Vite)
+  try {
+    // @ts-ignore - Handle Vite types without explicit config
+    const metaEnv = import.meta?.env;
+    if (metaEnv) {
+      if (metaEnv.VITE_API_KEY) return metaEnv.VITE_API_KEY;
+      if (metaEnv.API_KEY) return metaEnv.API_KEY;
+    }
+  } catch (e) {}
+
+  return undefined;
+};
+
 const getAI = () => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error("MISSING_API_KEY");
   }
