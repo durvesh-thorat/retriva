@@ -6,7 +6,6 @@ import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 const getAI = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    // This specific error message is caught by the ErrorBoundary in index.tsx
     throw new Error("API Key must be set. Please check Vercel Environment Variables.");
   }
   return new GoogleGenAI({ apiKey });
@@ -21,20 +20,28 @@ const MODEL_CASCADE = [
 ];
 
 /**
- * Helper to strip Markdown code blocks (```json ... ```) from AI response
+ * Robust JSON Cleaner: Extracts the first valid JSON object from a string.
  */
 const cleanJSON = (text: string): string => {
   if (!text) return "{}";
-  // Remove markdown code blocks
-  let cleaned = text.replace(/```json\s*|\s*```/g, "");
-  // Remove generic code blocks if json tag missing
-  cleaned = cleaned.replace(/```\s*|\s*```/g, "");
+  
+  // 1. Remove Markdown code blocks
+  let cleaned = text.replace(/```json/g, "").replace(/```/g, "");
+  
+  // 2. Find the first '{' and the last '}'
+  const firstOpen = cleaned.indexOf('{');
+  const lastClose = cleaned.lastIndexOf('}');
+  
+  if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+    cleaned = cleaned.substring(firstOpen, lastClose + 1);
+  } else {
+    // If no brackets found, return empty object to prevent crash
+    return "{}";
+  }
+
   return cleaned.trim();
 };
 
-/**
- * Wrapper for generateContent that implements Model Cascading.
- */
 const generateWithCascade = async (
   params: any
 ): Promise<GenerateContentResponse> => {
@@ -55,26 +62,15 @@ const generateWithCascade = async (
       });
       return response;
     } catch (error: any) {
-      const isRateLimit = error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.status === 429;
-      const isQuota = error.message?.includes('quota') || error.message?.includes('exhausted');
-      const isOverloaded = error.message?.includes('503') || error.status === 503;
-      const isModelNotFound = error.message?.includes('404') || error.message?.includes('not found');
-
-      if (isRateLimit || isQuota || isOverloaded || isModelNotFound) {
-        console.warn(`Model ${modelName} failed. Switching to next.`);
-        lastError = error;
-        continue; 
-      }
-      throw error;
+      console.warn(`Model ${modelName} failed.`, error.message);
+      lastError = error;
+      continue; 
     }
   }
   console.error("All models in cascade failed.");
   throw lastError || new Error("Model cascade exhausted.");
 };
 
-/**
- * Instantly checks a single image for unwanted content.
- */
 export const instantImageCheck = async (base64Image: string): Promise<{ 
   faceStatus: 'NONE' | 'ACCIDENTAL' | 'PRANK';
   isPrank: boolean;
@@ -88,25 +84,25 @@ export const instantImageCheck = async (base64Image: string): Promise<{
       contents: {
         parts: [
           { text: `
-            STRICT SECURITY SCAN. Analyze this image for a Campus Lost & Found App.
-            Identify if the image contains PROHIBITED content (Gore, Pets, Selfies).
-            Return JSON.
+            SYSTEM: Security Scan.
+            Analyze image for specific violations:
+            1. GORE/VIOLENCE
+            2. NUDITY
+            3. SELFIE/FACES (Privacy risk)
+            
+            Return strictly JSON:
+            {
+              "faceStatus": "NONE" | "ACCIDENTAL" | "PRANK",
+              "violationType": "GORE" | "ANIMAL" | "HUMAN" | "NONE",
+              "isPrank": boolean,
+              "reason": "string"
+            }
           ` },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            faceStatus: { type: Type.STRING, enum: ['NONE', 'ACCIDENTAL', 'PRANK'] },
-            violationType: { type: Type.STRING, enum: ['GORE', 'ANIMAL', 'HUMAN', 'NONE'] },
-            isPrank: { type: Type.BOOLEAN },
-            reason: { type: Type.STRING }
-          },
-          required: ["faceStatus", "isPrank", "violationType", "reason"]
-        }
+        responseMimeType: "application/json"
       }
     });
 
@@ -114,13 +110,11 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     return JSON.parse(text);
   } catch (e) {
     console.error("Instant check failed", e);
+    // Fail safe: assume safe if AI fails, let manual review catch it
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
 
-/**
- * Full report verification and content enhancement.
- */
 export const analyzeItemDescription = async (
   description: string,
   base64Images: string[] = [],
@@ -128,11 +122,27 @@ export const analyzeItemDescription = async (
 ): Promise<GeminiAnalysisResult> => {
   try {
     const promptText = `
-      Task: INTELLIGENT CONTENT MODERATION & ANALYSIS for Lost & Found.
+      Task: Enhance description and validate content.
       Title: "${title}"
-      Description: "${description}"
+      Raw Input: "${description}"
       
-      Output JSON with cleaned fields. If violations (gore/spam/irrelevant), set isViolating=true.
+      Instructions:
+      1. Correct grammar and clarity.
+      2. Extract Item Category (Electronics, Clothing, etc).
+      3. Identify potential Policy Violations (Drugs, Weapons, Spam).
+      
+      Return strictly JSON matching this schema:
+      {
+        "isViolating": boolean,
+        "violationType": "GORE" | "ANIMAL" | "HUMAN" | "IRRELEVANT" | "INCONSISTENT" | "NONE",
+        "violationReason": "string",
+        "category": "string",
+        "title": "refined title",
+        "description": "enhanced description",
+        "summary": "short summary",
+        "tags": ["tag1", "tag2"],
+        "distinguishingFeatures": ["feature1", "feature2"]
+      }
     `;
 
     const parts: any[] = [{ text: promptText }];
@@ -146,34 +156,30 @@ export const analyzeItemDescription = async (
     const response = await generateWithCascade({
       contents: { parts },
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            isViolating: { type: Type.BOOLEAN },
-            violationType: { type: Type.STRING, enum: ['GORE', 'ANIMAL', 'HUMAN', 'IRRELEVANT', 'INCONSISTENT', 'NONE'] },
-            violationReason: { type: Type.STRING },
-            isPrank: { type: Type.BOOLEAN },
-            prankReason: { type: Type.STRING },
-            isEmergency: { type: Type.BOOLEAN },
-            faceStatus: { type: Type.STRING, enum: ['NONE', 'ACCIDENTAL', 'PRANK'] },
-            category: { type: Type.STRING, enum: Object.values(ItemCategory) },
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            distinguishingFeatures: { type: Type.ARRAY, items: { type: Type.STRING } },
-            summary: { type: Type.STRING },
-            tags: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ["isViolating", "category", "title", "description", "tags"]
-        }
+        responseMimeType: "application/json"
       }
     });
 
     const text = response.text ? cleanJSON(response.text) : "{}";
-    return JSON.parse(text);
+    const result = JSON.parse(text);
+
+    // Fallbacks if AI misses fields
+    return {
+      isViolating: result.isViolating || false,
+      violationType: result.violationType || 'NONE',
+      violationReason: result.violationReason || '',
+      isPrank: false,
+      category: result.category || ItemCategory.OTHER,
+      title: result.title || title,
+      description: result.description || description,
+      summary: result.summary || description.substring(0, 50),
+      tags: result.tags || [],
+      distinguishingFeatures: result.distinguishingFeatures || [],
+      faceStatus: 'NONE'
+    };
   } catch (error) {
     console.error("AI Analysis Error", error);
-    // Return fail-safe object
+    // Return original data on error so user isn't blocked
     return { 
       isViolating: false,
       isPrank: false, 
@@ -192,19 +198,9 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
   try {
     const response = await generateWithCascade({
       contents: {
-        parts: [{ text: `Determine intent (LOST/FOUND/NONE) for: "${query}". Return JSON.` }]
+        parts: [{ text: `Determine intent (LOST/FOUND/NONE) and extract keywords for: "${query}". Return JSON: { "userStatus": "LOST"|"FOUND"|"NONE", "refinedQuery": "keywords" }` }]
       },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            userStatus: { type: Type.STRING, enum: ['LOST', 'FOUND', 'NONE'] },
-            refinedQuery: { type: Type.STRING }
-          },
-          required: ["userStatus", "refinedQuery"]
-        }
-      }
+      config: { responseMimeType: "application/json" }
     });
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
@@ -227,13 +223,12 @@ export const findPotentialMatches = async (
     }));
     
     const parts: any[] = [{ text: `
-      Task: Find matches.
+      Task: Find items in Candidates that match Source.
       Source: ${query.description}
       Candidates: ${JSON.stringify(candidateList)}
-      Return JSON { "matches": [{ "id": "..." }] }
+      Return JSON: { "matches": [{ "id": "candidate_id" }] }
     ` }];
 
-    // Attach first image only to save bandwidth
     if (query.imageUrls.length > 0 && query.imageUrls[0].startsWith('data:')) {
        const data = query.imageUrls[0].split(',')[1];
        parts.push({ inlineData: { mimeType: "image/jpeg", data } });
@@ -241,16 +236,7 @@ export const findPotentialMatches = async (
 
     const response = await generateWithCascade({
       contents: { parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            matches: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING } }, required: ["id"] } }
-          },
-          required: ["matches"]
-        }
-      }
+      config: { responseMimeType: "application/json" }
     });
     const text = response.text ? cleanJSON(response.text) : "{}";
     const data = JSON.parse(text);
@@ -273,7 +259,7 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
     const promptText = `
       Compare Item A (${itemA.title}) and Item B (${itemB.title}).
       Are they the same object?
-      Return JSON: { confidence: number, explanation: string, similarities: string[], differences: string[] }
+      Return JSON: { "confidence": number (0-100), "explanation": "string", "similarities": ["s1"], "differences": ["d1"] }
     `;
 
     const parts: any[] = [{ text: promptText }];
@@ -285,19 +271,7 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
 
     const response = await generateWithCascade({
       contents: { parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            confidence: { type: Type.NUMBER },
-            explanation: { type: Type.STRING },
-            similarities: { type: Type.ARRAY, items: { type: Type.STRING } },
-            differences: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ["confidence", "explanation", "similarities", "differences"]
-        }
-      }
+      config: { responseMimeType: "application/json" }
     });
 
     const text = response.text ? cleanJSON(response.text) : "{}";
