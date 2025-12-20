@@ -1,8 +1,9 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ItemReport, ReportType, ItemCategory, User } from '../types';
 import { analyzeItemDescription, instantImageCheck } from '../services/geminiService';
 import { compressImage } from '../services/imageCompression';
-import { Camera, Loader2, MapPin, Calendar, Clock, Tag, X, Check, Sparkles, Trash2, Box, SearchX, RotateCcw, ShieldAlert, AlertTriangle, UserX, Image as ImageIcon, AlertCircle, ShieldCheck, ShieldX, ScanEye, FileText, UploadCloud, Info, Siren, Lock, ShieldBan, ChevronLeft, ChevronRight, Scan, ThumbsUp } from 'lucide-react';
+import { Loader2, MapPin, X, Check, Sparkles, Box, SearchX, ShieldAlert, ShieldBan, UploadCloud } from 'lucide-react';
 
 interface ReportFormProps {
   type: ReportType;
@@ -14,7 +15,7 @@ interface ReportFormProps {
 
 type AIFeedback = {
   severity: 'BLOCK' | 'CAUTION' | 'SUCCESS';
-  type: 'PRANK' | 'EMERGENCY' | 'FACE' | 'GORE' | 'ANIMAL' | 'HUMAN' | 'IRRELEVANT' | 'INCONSISTENT' | 'ENHANCED';
+  type: string;
   message: string;
   actionLabel?: string;
   onAction?: () => void;
@@ -57,47 +58,22 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
   const isProcessing = isAnalyzing || isVerifyingFinal || isSubmitting;
 
   useEffect(() => {
-    // Lock scroll
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
 
-  // Instant Image Analysis on Upload
   const performInstantImageCheck = async (index: number, base64: string) => {
     setImageStatuses(prev => prev.map((s, i) => i === index ? { ...s, status: 'checking' } : s));
     const result = await instantImageCheck(base64);
     
     setImageStatuses(prev => prev.map((s, i) => {
       if (i !== index) return s;
-
-      if (result.violationType === 'GORE') {
+      if (result.violationType === 'GORE' || result.violationType === 'ANIMAL' || result.violationType === 'HUMAN') {
         setAiFeedback({ 
-          severity: 'BLOCK', type: 'GORE', message: 'Violent content prohibited.',
+          severity: 'BLOCK', type: result.violationType, message: `Image prohibited: ${result.violationType}`,
           actionLabel: 'Remove Image', onAction: () => removeImage(i)
         });
         return { ...s, status: 'prank', reason: 'Prohibited' };
-      }
-      if (result.violationType === 'ANIMAL') {
-        setAiFeedback({ 
-          severity: 'BLOCK', type: 'ANIMAL', message: 'Object reports only (no pets).',
-          actionLabel: 'Remove Image', onAction: () => removeImage(i)
-        });
-        return { ...s, status: 'prank', reason: 'Animal' };
-      }
-      if (result.violationType === 'HUMAN') {
-        setAiFeedback({ 
-          severity: 'BLOCK', type: 'HUMAN', message: 'Privacy: No people/selfies.',
-          actionLabel: 'Remove Image', onAction: () => removeImage(i)
-        });
-        return { ...s, status: 'prank', reason: 'Privacy' };
-      }
-      if (result.isPrank || result.faceStatus === 'PRANK') return { ...s, status: 'prank', reason: 'Invalid' };
-      if (result.faceStatus === 'ACCIDENTAL') {
-        setAiFeedback({ 
-          severity: 'CAUTION', type: 'FACE', message: 'Face detected. Ensure privacy.',
-          actionLabel: 'Review', onAction: () => imagesRef.current?.scrollIntoView({ behavior: 'smooth' })
-        });
-        return { ...s, status: 'caution', reason: 'Face' };
       }
       return { ...s, status: 'valid' };
     }));
@@ -122,23 +98,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
   const removeImage = (index: number) => {
     if (!isProcessing) {
       setImageStatuses(prev => prev.filter((_, i) => i !== index));
-      if (aiFeedback?.severity === 'BLOCK' && aiFeedback.message.toLowerCase().includes('image')) {
-        setAiFeedback(null);
-      }
+      setAiFeedback(null);
     }
-  };
-
-  const moveImage = (index: number, direction: 'left' | 'right') => {
-    if (isProcessing) return;
-    setImageStatuses(prev => {
-      const newArr = [...prev];
-      if (direction === 'left' && index > 0) {
-        [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
-      } else if (direction === 'right' && index < newArr.length - 1) {
-        [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
-      }
-      return newArr;
-    });
   };
 
   const runAnalysis = async () => {
@@ -151,13 +112,11 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
       if (result.isViolating) {
         setAiFeedback({ 
             severity: 'BLOCK', 
-            type: (result.violationType && result.violationType !== 'NONE') ? result.violationType : 'IRRELEVANT', 
-            message: result.violationReason || "Prohibited content.",
+            type: result.violationType || 'IRRELEVANT', 
+            message: result.violationReason || "Content violation detected.",
             actionLabel: 'Edit',
             onAction: () => descriptionRef.current?.focus()
         });
-      } else if (result.isPrank) {
-        setAiFeedback({ severity: 'BLOCK', type: 'PRANK', message: 'Prank/Invalid content detected.' });
       } else {
         setTitle(result.title);
         setCategory(result.category);
@@ -166,8 +125,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         setSummary(result.summary);
         setDistinguishingFeatures(result.distinguishingFeatures || []);
         
-        setAiFeedback({ severity: 'SUCCESS', type: 'ENHANCED', message: 'Description enhanced!' });
-        setTimeout(() => setAiFeedback(prev => prev?.type === 'ENHANCED' ? null : prev), 4000);
+        setAiFeedback({ severity: 'SUCCESS', type: 'ENHANCED', message: 'Description optimized by Gemini AI' });
+        setTimeout(() => setAiFeedback(prev => prev?.type === 'ENHANCED' ? null : prev), 3000);
       }
     } catch (error) {
       console.error("AI Analysis failed", error);
@@ -186,11 +145,11 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
 
     try {
       const finalCheck = await analyzeItemDescription(description, imageStatuses.map(s => s.url), title);
-      if (finalCheck.isViolating || finalCheck.isPrank || finalCheck.isEmergency) {
+      if (finalCheck.isViolating || finalCheck.isPrank) {
         setAiFeedback({ 
           severity: 'BLOCK', 
-          type: (finalCheck.violationType && finalCheck.violationType !== 'NONE') ? finalCheck.violationType : 'PRANK', 
-          message: finalCheck.violationReason || "Blocked by safety filter.",
+          type: 'VIOLATION', 
+          message: finalCheck.violationReason || "Safety check failed.",
           actionLabel: 'Review', onAction: () => setAiFeedback(null)
         });
         return;
@@ -228,9 +187,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
   };
 
   const isBlocked = aiFeedback?.severity === 'BLOCK';
-  const missingFoundImage = !isLost && imageStatuses.length === 0;
-  const isCheckingSomething = isProcessing || imageStatuses.some(s => s.status === 'checking');
-  const canSubmit = !isSubmitting && !isBlocked && !missingFoundImage && !isCheckingSomething;
+  const canSubmit = !isSubmitting && !isBlocked && !isAnalyzing;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
@@ -278,17 +235,6 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         {/* Scrollable Form Body */}
         <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-950/50">
           
-          {/* Feedback Banners */}
-          {aiFeedback?.severity === 'CAUTION' && (
-            <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 flex gap-3">
-               <ShieldAlert className="w-5 h-5 text-amber-600" />
-               <div className="flex-1">
-                 <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{aiFeedback.message}</p>
-                 <button onClick={() => setAiFeedback(null)} className="text-xs font-bold text-amber-600 mt-2 underline">Dismiss</button>
-               </div>
-            </div>
-          )}
-
           {aiFeedback?.severity === 'SUCCESS' && (
              <div className="mb-6 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-3">
                 <Sparkles className="w-5 h-5 text-emerald-600" />
@@ -299,7 +245,6 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
           <form id="report-form" onSubmit={handleSubmit} className="space-y-8">
             <fieldset disabled={isProcessing} className="space-y-8">
               
-              {/* Type Toggle */}
               <div className="flex justify-center">
                 <div className="bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 inline-flex shadow-sm w-full sm:w-auto">
                   <button type="button" onClick={() => setReportType(ReportType.LOST)} className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${isLost ? 'bg-orange-50 text-orange-700 shadow-sm ring-1 ring-orange-200' : 'text-slate-500'}`}>
@@ -322,8 +267,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
                         <select value={category} onChange={(e) => setCategory(e.target.value as ItemCategory)} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-bold outline-none focus:border-indigo-500">
                            {Object.values(ItemCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                         </select>
-                        <div className="flex gap-2 text-xs">
-                          {tags.slice(0,3).map((t,i) => <span key={i} className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-500">#{t}</span>)}
+                        <div className="flex gap-2 text-xs flex-wrap">
+                          {tags.slice(0,5).map((t,i) => <span key={i} className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-500">#{t}</span>)}
                         </div>
                      </div>
                   </div>
@@ -363,7 +308,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">4. Description</h3>
                      <textarea ref={descriptionRef} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe details..." className="w-full flex-1 min-h-[100px] p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-medium resize-none outline-none focus:border-indigo-500" required />
                      <button type="button" onClick={runAnalysis} disabled={!description} className="mt-3 w-full py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg flex items-center justify-center gap-2">
-                       {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} AI Enhance
+                       {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} 
+                       {isAnalyzing ? 'Analyzing...' : 'AI Enhance & Verify'}
                      </button>
                   </div>
                 </div>

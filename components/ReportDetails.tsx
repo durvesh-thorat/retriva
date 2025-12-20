@@ -1,11 +1,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { ItemReport, ReportType, User } from '../types';
-import { findPotentialMatches } from '../services/geminiService';
 import { 
   X, MapPin, Calendar, Tag, Check, Sparkles, Loader2, 
   ArrowRight, Clock, Fingerprint, MessageCircle, ChevronLeft, ChevronRight, 
-  Box, Maximize2, FileText
+  Box, Maximize2, FileText, ScanSearch
 } from 'lucide-react';
 
 interface ReportDetailsProps {
@@ -17,22 +16,19 @@ interface ReportDetailsProps {
   onEdit: (report: ItemReport) => void;
   onDelete: (id: string) => void;
   onNavigateToChat: (report: ItemReport) => void;
-  onViewMatch: (report: ItemReport, matches?: ItemReport[]) => void;
+  onViewMatch: (report: ItemReport) => void;
 }
 
 const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, currentUser, onClose, onResolve, onEdit, onDelete, onNavigateToChat, onViewMatch }) => {
   const isOwner = report.reporterId === currentUser.id;
   const isLost = report.type === ReportType.LOST;
   
-  const [matchingStatus, setMatchingStatus] = useState<'idle' | 'loading' | 'found' | 'none'>('idle');
-  const [potentialMatches, setPotentialMatches] = useState<ItemReport[]>([]);
   const [activeImg, setActiveImg] = useState(0);
   const [imgError, setImgError] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showLightbox, setShowLightbox] = useState(false);
 
-  // Fallback Logic for AI Analysis
-  const displaySummary = report.summary || (report.description.length > 150 ? report.description.substring(0, 150) + "..." : report.description);
+  // Fallback Logic for AI Analysis content
   const displayFeatures = (report.distinguishingFeatures && report.distinguishingFeatures.length > 0) 
     ? report.distinguishingFeatures 
     : (report.tags && report.tags.length > 0 ? report.tags : ['Standard Item Details']);
@@ -42,35 +38,6 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
-
-  // Trigger matching logic
-  useEffect(() => {
-    const runMatch = async () => {
-      setMatchingStatus('loading');
-      const targetType = report.type === ReportType.LOST ? ReportType.FOUND : ReportType.LOST;
-      const candidates = allReports.filter(r => r.type === targetType && r.status === 'OPEN');
-      
-      if (candidates.length === 0) {
-        setMatchingStatus('none');
-        return;
-      }
-      try {
-        const query = `Title: ${report.title}. Desc: ${report.description}. Loc: ${report.location}`;
-        const results = await findPotentialMatches({ description: query, imageUrls: report.imageUrls }, candidates);
-        const matchIds = results.map(r => r.id);
-        if (matchIds.length > 0) {
-          const matches = candidates.filter(c => matchIds.includes(c.id));
-          setPotentialMatches(matches);
-          setMatchingStatus('found');
-        } else {
-          setMatchingStatus('none');
-        }
-      } catch (err) {
-        setMatchingStatus('none');
-      }
-    };
-    if (report.status === 'OPEN') runMatch();
-  }, [report, allReports]);
 
   useEffect(() => {
     setImgError(false);
@@ -114,9 +81,9 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
         </div>
       )}
 
-      {/* Main Modal Container - Reduced Size */}
+      {/* Main Modal Container */}
       <div 
-        className="relative w-full max-w-4xl h-[100dvh] sm:h-[85vh] md:h-[650px] bg-white dark:bg-slate-950 rounded-none sm:rounded-[2rem] shadow-2xl flex flex-col md:flex-row overflow-hidden border-0 sm:border border-slate-200 dark:border-slate-800" 
+        className="relative w-full max-w-5xl h-[100dvh] sm:h-[85vh] bg-white dark:bg-slate-950 rounded-none sm:rounded-[2rem] shadow-2xl flex flex-col md:flex-row overflow-hidden border-0 sm:border border-slate-200 dark:border-slate-800" 
         onClick={e => e.stopPropagation()}
       >
         
@@ -129,8 +96,7 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
         </button>
 
         {/* LEFT PANEL: IMAGES */}
-        {/* Mobile: Top Section (35% height), Desktop: Left Side (45% width) */}
-        <div className="w-full md:w-[45%] h-[35dvh] md:h-full bg-slate-100 dark:bg-slate-900 relative shrink-0">
+        <div className="w-full md:w-[40%] h-[40dvh] md:h-full bg-slate-100 dark:bg-slate-900 relative shrink-0">
            <div className="w-full h-full relative group bg-slate-200 dark:bg-slate-800">
               {report.imageUrls.length > 0 && !imgError ? (
                 <div className="w-full h-full relative cursor-zoom-in" onClick={() => setShowLightbox(true)}>
@@ -184,14 +150,13 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
         </div>
 
         {/* RIGHT PANEL: CONTENT */}
-        {/* ADDED 'relative' CLASS HERE to fix Footer positioning */}
-        <div className="flex-1 flex flex-col h-[65dvh] md:h-full bg-white dark:bg-slate-950 min-w-0 relative">
+        <div className="flex-1 flex flex-col h-[60dvh] md:h-full bg-white dark:bg-slate-950 min-w-0 relative">
            
            {/* SCROLLABLE CONTENT AREA */}
-           <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 overscroll-contain pb-24">
+           <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
               
               {/* Header Info */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                  <div className="flex flex-wrap items-center gap-2">
                     <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 rounded-md text-[10px] font-bold uppercase tracking-wider text-brand-violet border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
                       <Tag className="w-3 h-3" /> {report.category}
@@ -205,22 +170,24 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
                    {report.title}
                  </h1>
 
-                 {/* Match Banner */}
-                 {report.status === 'OPEN' && matchingStatus === 'found' && (
+                 {/* ACTION: SCAN FOR MATCHES */}
+                 {report.status === 'OPEN' && (
                    <button 
-                       onClick={() => onViewMatch(report, potentialMatches)}
-                       className="w-full p-3 bg-gradient-to-r from-brand-violet/5 to-purple-600/5 dark:from-brand-violet/20 dark:to-purple-900/20 border border-brand-violet/20 rounded-xl flex items-center justify-between group transition-all"
+                       onClick={() => onViewMatch(report)}
+                       className="w-full p-4 bg-gradient-to-r from-brand-violet/10 to-purple-600/10 dark:from-brand-violet/20 dark:to-purple-900/20 border border-brand-violet/20 rounded-xl flex items-center justify-between group transition-all hover:bg-brand-violet/15"
                    >
-                       <div className="flex items-center gap-3">
-                         <div className="p-2 bg-brand-violet rounded-lg shadow-sm">
-                             <Sparkles className="w-4 h-4 text-white" />
+                       <div className="flex items-center gap-4">
+                         <div className="p-3 bg-brand-violet rounded-lg shadow-sm group-hover:scale-110 transition-transform">
+                             <ScanSearch className="w-5 h-5 text-white" />
                          </div>
                          <div className="text-left">
-                             <p className="text-[9px] font-bold uppercase tracking-widest text-brand-violet">AI Detection</p>
-                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Found {potentialMatches.length} Similar Items</p>
+                             <p className="text-[10px] font-bold uppercase tracking-widest text-brand-violet mb-0.5">AI Match Center</p>
+                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Scan for similar items</p>
                          </div>
                        </div>
-                       <ArrowRight className="w-4 h-4 text-brand-violet group-hover:translate-x-1 transition-transform" />
+                       <div className="flex items-center gap-2 text-xs font-bold text-brand-violet">
+                          Scan Now <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                       </div>
                    </button>
                  )}
               </div>
@@ -259,7 +226,7 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
                      <Fingerprint className="w-3 h-3" /> Key Features
                    </h3>
-                   <div className="flex flex-wrap gap-2">
+                   <div className="flex flex-wrap gap-2 pb-6">
                       {displayFeatures.map((f, i) => (
                          <span key={i} className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-bold text-slate-600 dark:text-slate-300">
                            {f}
@@ -271,7 +238,7 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
            </div>
 
            {/* Sticky Footer */}
-           <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md z-[80]">
+           <div className="p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 z-20">
               {isOwner ? (
                 <div className="space-y-3">
                    {report.status === 'OPEN' ? (
