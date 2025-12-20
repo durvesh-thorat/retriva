@@ -187,7 +187,7 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
         <div className="flex-1 flex flex-col h-[65dvh] md:h-full bg-white dark:bg-slate-950 min-w-0">
            
            {/* SCROLLABLE CONTENT AREA */}
-           <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 overscroll-contain">
+           <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 overscroll-contain pb-24">
               
               {/* Header Info */}
               <div className="space-y-3">
@@ -270,7 +270,7 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
            </div>
 
            {/* Sticky Footer */}
-           <div className="p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 z-10">
+           <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md z-[80]">
               {isOwner ? (
                 <div className="space-y-3">
                    {report.status === 'OPEN' ? (

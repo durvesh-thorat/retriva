@@ -79,6 +79,7 @@ export interface AppNotification {
 export interface Message {
   id: string;
   senderId: string;
+  senderName?: string; // Added for Global Chat context
   text: string;
   timestamp: number;
   attachment?: {
@@ -89,7 +90,8 @@ export interface Message {
 
 export interface Chat {
   id: string;
-  itemId: string;
+  type: 'direct' | 'global'; // Added to distinguish chat types
+  itemId?: string;
   itemTitle: string;
   itemImage?: string;
   participants: string[];

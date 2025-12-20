@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, User, Message } from '../types';
-import { Send, Search, ArrowLeft, MessageCircle, CheckCheck, Paperclip, Phone, PhoneOff, Mic, MicOff, File, ShieldBan, ShieldCheck, Lock } from 'lucide-react';
+import { Send, Search, ArrowLeft, MessageCircle, CheckCheck, Paperclip, Phone, PhoneOff, Mic, MicOff, File, ShieldBan, ShieldCheck, Lock, Globe, Users } from 'lucide-react';
 
 interface ChatViewProps {
   user: User;
@@ -17,6 +17,7 @@ interface ChatViewProps {
 const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats, activeChatId, onSelectChat, onSendMessage, onBlockChat }) => {
   const [newMessage, setNewMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // State
   const [isCalling, setIsCalling] = useState(false);
@@ -26,7 +27,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
   const selectedChat = chats.find(c => c.id === activeChatId);
   const isBlocked = selectedChat?.isBlocked || false;
-  const isBlockedByMe = selectedChat?.blockedBy === user.id;
+  const isGlobal = selectedChat?.type === 'global';
 
   useEffect(() => {
     let interval: any;
@@ -38,6 +39,13 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     return () => clearInterval(interval);
   }, [isCalling, callStatus]);
 
+  useEffect(() => {
+    // Auto-scroll to bottom of messages
+    if (selectedChat) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [selectedChat?.messages, activeChatId]);
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -45,7 +53,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   };
 
   const handleStartCall = () => {
-    if (!selectedChat || isBlocked) return;
+    if (!selectedChat || isBlocked || isGlobal) return;
     setIsCalling(true);
     setCallStatus('ringing');
     setTimeout(() => setCallStatus('connected'), 2000);
@@ -63,6 +71,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     const msg: Message = {
       id: crypto.randomUUID(),
       senderId: user.id,
+      senderName: user.name, // Important for Global Chat
       text: newMessage,
       timestamp: Date.now(),
       attachment
@@ -149,8 +158,10 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
               }`}
             >
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-lg shadow-sm relative">
-                  {chat.itemTitle.charAt(0)}
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-sm relative shrink-0 ${
+                   chat.type === 'global' ? 'bg-gradient-to-br from-indigo-500 to-cyan-500' : 'bg-gradient-to-br from-indigo-400 to-purple-500'
+                }`}>
+                  {chat.type === 'global' ? <Globe className="w-6 h-6 text-white" /> : chat.itemTitle.charAt(0)}
                   {chat.isBlocked && (
                     <div className="absolute -bottom-1 -right-1 bg-red-500 rounded-full p-1 border-2 border-white dark:border-slate-900">
                       <ShieldBan className="w-2.5 h-2.5 text-white" />
@@ -183,13 +194,15 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
         {selectedChat ? (
           <>
             {/* Header */}
-            <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm z-10">
+            <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm z-10 shrink-0">
                <div className="flex items-center gap-3">
                  <button onClick={() => onSelectChat(null)} className="md:hidden p-2 -ml-2 text-slate-500 dark:text-slate-400">
                    <ArrowLeft className="w-5 h-5" />
                  </button>
-                 <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-slate-800 flex items-center justify-center text-indigo-600 dark:text-brand-violet font-bold relative">
-                    {selectedChat.itemTitle.charAt(0)}
+                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold relative ${
+                     isGlobal ? 'bg-indigo-500' : 'bg-indigo-100 dark:bg-slate-800 text-indigo-600 dark:text-brand-violet'
+                 }`}>
+                    {isGlobal ? <Globe className="w-5 h-5" /> : selectedChat.itemTitle.charAt(0)}
                     {isBlocked && (
                       <div className="absolute -bottom-1 -right-1 bg-red-500 rounded-full p-0.5 border-2 border-white dark:border-slate-900">
                         <Lock className="w-3 h-3 text-white" />
@@ -204,39 +217,49 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                          <ShieldBan className="w-3 h-3" /> Blocked
                        </span>
                      ) : (
-                       <>
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Online</span>
-                       </>
+                       isGlobal ? (
+                          <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide flex items-center gap-1">
+                             <Users className="w-3 h-3" /> Community
+                          </span>
+                       ) : (
+                          <>
+                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Online</span>
+                          </>
+                       )
                      )}
                    </div>
                  </div>
                </div>
                
                <div className="flex gap-2">
-                 <button 
-                  onClick={() => onBlockChat(selectedChat.id)} 
-                  className={`p-2.5 rounded-full transition-colors ${
-                    isBlocked 
-                      ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100' 
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500'
-                  }`}
-                  title={isBlocked ? "Unblock User" : "Block User"}
-                 >
-                   {isBlocked ? <ShieldCheck className="w-5 h-5" /> : <ShieldBan className="w-5 h-5" />}
-                 </button>
+                 {!isGlobal && (
+                    <button 
+                      onClick={() => onBlockChat(selectedChat.id)} 
+                      className={`p-2.5 rounded-full transition-colors ${
+                        isBlocked 
+                          ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100' 
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500'
+                      }`}
+                      title={isBlocked ? "Unblock User" : "Block User"}
+                    >
+                      {isBlocked ? <ShieldCheck className="w-5 h-5" /> : <ShieldBan className="w-5 h-5" />}
+                    </button>
+                 )}
 
-                 <button 
-                   onClick={handleStartCall} 
-                   disabled={isBlocked}
-                   className={`p-2.5 rounded-full transition-colors ${
-                     isBlocked 
-                       ? 'opacity-30 cursor-not-allowed text-slate-400' 
-                       : 'hover:bg-indigo-50 dark:hover:bg-slate-800 text-brand-violet'
-                   }`}
-                  >
-                   <Phone className="w-5 h-5" />
-                 </button>
+                 {!isGlobal && (
+                   <button 
+                     onClick={handleStartCall} 
+                     disabled={isBlocked}
+                     className={`p-2.5 rounded-full transition-colors ${
+                       isBlocked 
+                         ? 'opacity-30 cursor-not-allowed text-slate-400' 
+                         : 'hover:bg-indigo-50 dark:hover:bg-slate-800 text-brand-violet'
+                     }`}
+                    >
+                     <Phone className="w-5 h-5" />
+                   </button>
+                 )}
                </div>
             </div>
 
@@ -244,15 +267,26 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {selectedChat.messages.map((msg, idx) => {
                 const isMe = msg.senderId === user.id;
+                // Show sender name if Global chat and not me
+                const showSender = isGlobal && !isMe;
+                
                 return (
-                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex flex-col max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
+                      {showSender && (
+                        <span className="text-[10px] font-bold text-slate-400 mb-1 ml-1">{msg.senderName || 'Student'}</span>
+                      )}
+
                       {msg.attachment && (
                         <div className={`mb-2 rounded-2xl overflow-hidden border shadow-sm ${isBlocked ? 'opacity-50 grayscale' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
-                             <div className="p-4 bg-white dark:bg-slate-800 flex items-center gap-3">
-                               <File className="w-8 h-8 text-brand-violet" />
-                               <span className="text-xs font-bold">Attachment</span>
-                             </div>
+                             {msg.attachment.type === 'image' ? (
+                               <img src={msg.attachment.url} className="max-w-full max-h-60 object-cover" />
+                             ) : (
+                               <div className="p-4 bg-white dark:bg-slate-800 flex items-center gap-3">
+                                 <File className="w-8 h-8 text-brand-violet" />
+                                 <span className="text-xs font-bold">Attachment</span>
+                               </div>
+                             )}
                         </div>
                       )}
                       
@@ -274,15 +308,16 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                   </div>
                 );
               })}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input */}
             {isBlocked ? (
-              <div className="p-6 bg-slate-100 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800 text-center">
+              <div className="p-6 bg-slate-100 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800 text-center shrink-0">
                  <p className="text-sm font-bold text-slate-500">Conversation Blocked</p>
               </div>
             ) : (
-              <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+              <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 shrink-0">
                   <form onSubmit={(e) => handleSendMessage(e)} className="flex items-end gap-3 max-w-4xl mx-auto">
                     <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-400 hover:text-brand-violet transition-colors">
@@ -313,13 +348,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 p-8">
-            {/* WATERMARKING: Logo watermark for empty state */}
-            <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] dark:opacity-[0.05] pointer-events-none select-none">
-              <svg viewBox="0 0 200 200" className="w-96 h-96" fill="currentColor">
-                  <path fillRule="evenodd" clipRule="evenodd" d="M100 25 C60 25 25 60 25 100 C25 140 90 185 100 190 C110 185 175 140 175 100 C175 60 140 25 100 25 Z" />
-              </svg>
-            </div>
-            
             <div className="w-20 h-20 bg-slate-100 dark:bg-slate-900 rounded-full flex items-center justify-center mb-6 ring-4 ring-slate-50 dark:ring-slate-800">
               <MessageCircle className="w-10 h-10 text-slate-300 dark:text-slate-600" />
             </div>

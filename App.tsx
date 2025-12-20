@@ -14,7 +14,7 @@ import { MessageCircle, Bell, Moon, Sun, LogOut, User as UserIcon, Plus, SearchX
 // FIREBASE IMPORTS
 import { auth, db } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, query, orderBy, where, arrayUnion } from 'firebase/firestore';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -91,6 +91,58 @@ const App: React.FC = () => {
 
     return () => unsubscribe();
   }, [user]); // Re-run if user logs in/out
+
+  // 3. REALTIME CHATS LISTENER (Global + Private)
+  useEffect(() => {
+    if (!user) return;
+
+    // A. Ensure Global Chat Exists
+    const globalChatRef = doc(db, 'chats', 'global');
+    getDoc(globalChatRef).then(snap => {
+      if (!snap.exists()) {
+        setDoc(globalChatRef, {
+          id: 'global',
+          type: 'global',
+          itemTitle: 'Campus Community',
+          participants: [],
+          messages: [],
+          lastMessage: 'Welcome to the community hub!',
+          lastMessageTime: Date.now(),
+          unreadCount: 0
+        });
+      }
+    });
+
+    // B. Listen to Global Chat
+    const unsubGlobal = onSnapshot(globalChatRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const globalData = docSnap.data() as Chat;
+        setChats(prev => {
+          const filtered = prev.filter(c => c.id !== 'global');
+          return [globalData, ...filtered].sort((a,b) => b.lastMessageTime - a.lastMessageTime);
+        });
+      }
+    });
+
+    // C. Listen to My Chats
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.id));
+    const unsubPrivate = onSnapshot(q, (snapshot) => {
+      const privateChats = snapshot.docs.map(d => d.data() as Chat);
+      setChats(prev => {
+         const global = prev.find(c => c.id === 'global');
+         const all = global ? [global, ...privateChats] : privateChats;
+         // Deduplicate by ID
+         const unique = Array.from(new Map(all.map(item => [item.id, item])).values());
+         return unique.sort((a,b) => b.lastMessageTime - a.lastMessageTime);
+      });
+    });
+
+    return () => {
+      unsubGlobal();
+      unsubPrivate();
+    };
+  }, [user]);
+
 
   useEffect(() => {
     // Force dark mode logic or default based on preference
@@ -177,17 +229,24 @@ const App: React.FC = () => {
     setComparingItems({ item1, item2 });
   };
 
-  const handleChatStart = (report: ItemReport) => {
+  const handleChatStart = async (report: ItemReport) => {
     if (!user) return;
+    
+    // Check if chat already exists locally (since we sync with FB)
     const existingChat = chats.find(c => c.itemId === report.id && c.participants.includes(user.id));
+    
     if (existingChat) {
       setActiveChatId(existingChat.id);
       setView('MESSAGES');
     } else {
+      // Create new chat in Firestore
+      const newChatId = crypto.randomUUID();
       const newChat: Chat = {
-        id: crypto.randomUUID(),
+        id: newChatId,
+        type: 'direct',
         itemId: report.id,
         itemTitle: report.title,
+        itemImage: report.imageUrls[0] || '',
         participants: [user.id, report.reporterId],
         messages: [],
         lastMessage: 'Chat started',
@@ -195,43 +254,54 @@ const App: React.FC = () => {
         unreadCount: 0,
         isBlocked: false
       };
-      setChats([newChat, ...chats]);
-      setActiveChatId(newChat.id);
-      setView('MESSAGES');
+      
+      try {
+        await setDoc(doc(db, 'chats', newChatId), newChat);
+        // Note: Listener will pick this up and update state
+        setActiveChatId(newChatId);
+        setView('MESSAGES');
+      } catch (e) {
+        console.error("Error creating chat", e);
+        setToast({ message: "Could not start chat.", type: 'alert' });
+      }
     }
   };
 
-  const handleSendMessage = (chatId: string, message: Message) => {
-    setChats(currentChats => currentChats.map(c => {
-      if (c.id === chatId) {
-        return {
-          ...c,
-          messages: [...c.messages, message],
-          lastMessage: message.attachment ? 'Attachment sent' : message.text,
-          lastMessageTime: message.timestamp
-        };
-      }
-      return c;
-    }));
+  const handleSendMessage = async (chatId: string, message: Message) => {
+    try {
+      const chatRef = doc(db, 'chats', chatId);
+      
+      // Update Firestore
+      await updateDoc(chatRef, {
+        messages: arrayUnion(message),
+        lastMessage: message.attachment ? 'Attachment sent' : message.text,
+        lastMessageTime: message.timestamp
+      });
+      
+      // For Global Chat, we might want to trim messages occasionally, but for now we append.
+    } catch (e) {
+      console.error("Send message error", e);
+      setToast({ message: "Failed to send message", type: 'alert' });
+    }
   };
 
-  const handleBlockChat = (chatId: string) => {
-    setChats(currentChats => currentChats.map(c => {
-      if (c.id === chatId) {
-        const newStatus = !c.isBlocked;
-        return { 
-          ...c, 
-          isBlocked: newStatus,
-          blockedBy: newStatus ? user?.id : undefined 
-        };
-      }
-      return c;
-    }));
-    const isNowBlocked = !chats.find(c => c.id === chatId)?.isBlocked;
-    setToast({ 
-      message: isNowBlocked ? "User blocked." : "User unblocked.", 
-      type: isNowBlocked ? 'alert' : 'success' 
-    });
+  const handleBlockChat = async (chatId: string) => {
+    const chat = chats.find(c => c.id === chatId);
+    if (!chat || chat.type === 'global') return; // Cannot block global chat
+
+    try {
+      const newStatus = !chat.isBlocked;
+      await updateDoc(doc(db, 'chats', chatId), {
+        isBlocked: newStatus,
+        blockedBy: newStatus ? user?.id : null
+      });
+      setToast({ 
+        message: newStatus ? "User blocked." : "User unblocked.", 
+        type: newStatus ? 'alert' : 'success' 
+      });
+    } catch (e) {
+      console.error("Block error", e);
+    }
   };
 
   // LOADING SCREEN FOR AUTH CHECK
