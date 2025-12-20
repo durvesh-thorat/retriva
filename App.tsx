@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import ReportForm from './components/ReportForm';
@@ -443,6 +443,15 @@ const App: React.FC = () => {
     return <Auth onLogin={handleLogin} />;
   }
 
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const unreadMessageCount = chats.reduce((acc, chat) => {
+    if (!user) return acc;
+    // Check messages where I am not the sender and status is not 'read'
+    const count = chat.messages.filter(m => m.senderId !== user.id && m.status !== 'read').length;
+    return acc + count;
+  }, 0);
+
   // --- MAIN APP CONTENT (Authenticated) ---
   const renderContent = () => {
     if (comparingItems) {
@@ -510,8 +519,6 @@ const App: React.FC = () => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300 flex flex-col">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -560,8 +567,9 @@ const App: React.FC = () => {
                <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 transition-colors">
                  {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                </button>
-               <button onClick={() => setView('MESSAGES')} className={`p-2 rounded-full transition-all ${view === 'MESSAGES' ? 'bg-indigo-50 dark:bg-slate-800 text-indigo-600' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500'}`}>
+               <button onClick={() => setView('MESSAGES')} className={`relative p-2 rounded-full transition-all ${view === 'MESSAGES' ? 'bg-indigo-50 dark:bg-slate-800 text-indigo-600' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500'}`}>
                  <MessageCircle className="w-5 h-5" />
+                 {unreadMessageCount > 0 && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-950"></span>}
                </button>
                <div className="relative">
                  <button onClick={() => setShowNotificationCenter(!showNotificationCenter)} className={`p-2 rounded-full transition-all ${showNotificationCenter ? 'bg-indigo-50 dark:bg-slate-800 text-indigo-600' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500'}`}>
@@ -585,7 +593,7 @@ const App: React.FC = () => {
         {renderContent()}
 
         {/* FLOATING ACTION BUTTON (FAB) */}
-        {user && view !== 'AUTH' && (
+        {user && view !== 'AUTH' && view !== 'MESSAGES' && (
           <div className="fixed bottom-24 right-6 md:bottom-8 md:right-8 z-50 flex flex-col items-end gap-3">
              {showFabMenu && (
                 <div className="flex flex-col items-end gap-5 mb-4 animate-in fade-in slide-in-from-bottom-8 zoom-in-90 duration-500 ease-out">
