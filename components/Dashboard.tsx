@@ -155,51 +155,65 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
 
       {/* Hero Section */}
       <section className="relative mb-12">
-          <div className="relative rounded-[2.5rem] bg-brand-violet dark:bg-[#4f4dbd] overflow-hidden shadow-2xl shadow-brand-violet/20 py-8 px-6 lg:py-16 lg:px-20 min-h-[320px] flex items-center">
-              <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/4"></div>
+          {/* Foundation Layer */}
+          <div className="relative rounded-[2rem] bg-slate-950 overflow-hidden shadow-2xl border border-white/10 py-8 px-6 lg:py-16 lg:px-20 min-h-[320px] flex items-center group">
+              
+              {/* Aurora Orbs - Animated */}
+              <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] bg-indigo-600/30 rounded-full blur-[120px] mix-blend-screen pointer-events-none animate-pulse-soft"></div>
+              <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] bg-purple-600/30 rounded-full blur-[120px] mix-blend-screen pointer-events-none animate-pulse-soft" style={{ animationDelay: '2s' }}></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-cyan-600/20 rounded-full blur-[100px] mix-blend-screen pointer-events-none animate-pulse-soft" style={{ animationDelay: '4s' }}></div>
+              
+              {/* Surface Texture */}
+              <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent pointer-events-none"></div>
               
               <div className="relative z-10 w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
                   <div className="space-y-4">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 border border-white/10 text-[10px] font-black backdrop-blur-md text-white shadow-sm tracking-widest uppercase">
-                        <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                      {/* Badge */}
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-[10px] font-black backdrop-blur-md text-white shadow-sm tracking-widest uppercase">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
                         AI Verified
                       </div>
+                      
+                      {/* Title */}
                       <h1 className="font-black tracking-tighter leading-[0.9] text-white" style={{ fontSize: 'clamp(2.5rem, 8vw, 4.5rem)' }}>
                         Campus <br/>
                         Lost & Found.
                       </h1>
-                      <p className="text-indigo-50 text-base md:text-lg font-medium opacity-90 max-w-md">
+                      
+                      {/* Description */}
+                      <p className="text-slate-400 text-base md:text-lg font-medium max-w-md leading-relaxed">
                         Find your items instantly with Retriva's smart matching engine.
                       </p>
                   </div>
 
+                  {/* Buttons */}
                   <div className="flex flex-col gap-4 max-w-sm mx-auto w-full lg:ml-auto lg:mr-0">
                      <button 
                        onClick={() => onNavigate('REPORT_LOST')} 
-                       className="group relative overflow-hidden p-6 rounded-2xl bg-indigo-950/40 hover:bg-indigo-950/60 backdrop-blur-xl border border-white/10 shadow-lg transition-all duration-300 flex items-center gap-5 hover:-translate-y-1 hover:shadow-xl"
+                       className="group relative overflow-hidden p-6 rounded-2xl bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 shadow-lg transition-all duration-300 flex items-center gap-5 hover:-translate-y-1 hover:shadow-xl hover:border-white/20"
                      >
-                       <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                       <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                        <div className="relative z-10 w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
                           <SearchX className="w-6 h-6" />
                        </div>
                        <div className="relative z-10 text-left">
                           <h3 className="font-bold text-lg text-white leading-tight">I Lost Something</h3>
-                          <p className="text-xs text-indigo-100 font-medium">Create a report for lost items</p>
+                          <p className="text-xs text-slate-400 group-hover:text-slate-200 font-medium transition-colors">Create a report for lost items</p>
                        </div>
                        <ArrowRight className="absolute right-6 w-5 h-5 text-white/30 group-hover:text-white group-hover:translate-x-1 transition-all" />
                      </button>
 
                      <button 
                        onClick={() => onNavigate('REPORT_FOUND')} 
-                       className="group relative overflow-hidden p-6 rounded-2xl bg-indigo-950/40 hover:bg-indigo-950/60 backdrop-blur-xl border border-white/10 shadow-lg transition-all duration-300 flex items-center gap-5 hover:-translate-y-1 hover:shadow-xl"
+                       className="group relative overflow-hidden p-6 rounded-2xl bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 shadow-lg transition-all duration-300 flex items-center gap-5 hover:-translate-y-1 hover:shadow-xl hover:border-white/20"
                      >
-                       <div className="absolute inset-0 bg-gradient-to-r from-teal-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                       <div className="absolute inset-0 bg-gradient-to-r from-teal-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                        <div className="relative z-10 w-12 h-12 bg-teal-500 rounded-xl flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
                           <Box className="w-6 h-6" />
                        </div>
                        <div className="relative z-10 text-left">
                           <h3 className="font-bold text-lg text-white leading-tight">I Found Something</h3>
-                          <p className="text-xs text-indigo-100 font-medium">Report an item you found</p>
+                          <p className="text-xs text-slate-400 group-hover:text-slate-200 font-medium transition-colors">Report an item you found</p>
                        </div>
                        <ArrowRight className="absolute right-6 w-5 h-5 text-white/30 group-hover:text-white group-hover:translate-x-1 transition-all" />
                      </button>
