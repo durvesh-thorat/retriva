@@ -184,7 +184,8 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
         </div>
 
         {/* RIGHT PANEL: CONTENT */}
-        <div className="flex-1 flex flex-col h-[65dvh] md:h-full bg-white dark:bg-slate-950 min-w-0">
+        {/* ADDED 'relative' CLASS HERE to fix Footer positioning */}
+        <div className="flex-1 flex flex-col h-[65dvh] md:h-full bg-white dark:bg-slate-950 min-w-0 relative">
            
            {/* SCROLLABLE CONTENT AREA */}
            <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 overscroll-contain pb-24">

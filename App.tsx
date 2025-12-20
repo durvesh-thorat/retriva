@@ -232,8 +232,19 @@ const App: React.FC = () => {
   const handleChatStart = async (report: ItemReport) => {
     if (!user) return;
     
+    // Safety check for reporter ID
+    if (!report.reporterId) {
+       setToast({ message: "Cannot contact user (Missing ID).", type: 'alert' });
+       return;
+    }
+    
     // Check if chat already exists locally (since we sync with FB)
-    const existingChat = chats.find(c => c.itemId === report.id && c.participants.includes(user.id));
+    // We look for a chat about this item that includes ME.
+    const existingChat = chats.find(c => 
+      c.itemId === report.id && 
+      c.type === 'direct' &&
+      c.participants.includes(user.id)
+    );
     
     if (existingChat) {
       setActiveChatId(existingChat.id);
@@ -271,14 +282,17 @@ const App: React.FC = () => {
     try {
       const chatRef = doc(db, 'chats', chatId);
       
+      // FIX: Sanitize message object to remove 'undefined' values which Firebase arrayUnion rejects
+      // Specifically 'attachment' might be undefined
+      const msgData = JSON.parse(JSON.stringify(message));
+
       // Update Firestore
       await updateDoc(chatRef, {
-        messages: arrayUnion(message),
+        messages: arrayUnion(msgData),
         lastMessage: message.attachment ? 'Attachment sent' : message.text,
         lastMessageTime: message.timestamp
       });
       
-      // For Global Chat, we might want to trim messages occasionally, but for now we append.
     } catch (e) {
       console.error("Send message error", e);
       setToast({ message: "Failed to send message", type: 'alert' });
