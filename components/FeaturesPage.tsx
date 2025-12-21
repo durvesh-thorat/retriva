@@ -384,7 +384,7 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ onBack }) => {
                 
                 <h2 className="text-3xl md:text-4xl font-black text-white mb-4">Proactive Scan & Alert</h2>
                 <p className="text-slate-400 max-w-2xl mx-auto text-lg leading-relaxed mb-8">
-                   You don't need to check the app every hour. Our backend runs a <strong>Cron Job</strong> that periodically cross-references your lost item report against all new incoming found items. If a potential match (Confidence > 85%) is found, we send you a push notification instantly.
+                   You don't need to check the app every hour. Our backend runs a <strong>Cron Job</strong> that periodically cross-references your lost item report against all new incoming found items. If a potential match (Confidence &gt; 85%) is found, we send you a push notification instantly.
                 </p>
 
                 <div className="flex flex-wrap justify-center gap-4">
