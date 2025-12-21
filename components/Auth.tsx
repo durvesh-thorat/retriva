@@ -167,7 +167,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-12 font-sans relative overflow-hidden bg-black">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans relative overflow-hidden bg-black">
       
       {/* RICH CHANGING DARK GRADIENT BACKGROUND (Outer) - Darker & Subtler */}
       <div 
@@ -188,10 +188,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       </div>
 
       {/* FLOATING CARD CONTAINER */}
-      <div className="relative z-10 w-full max-w-6xl flex flex-col lg:flex-row bg-[#080808] rounded-[2.5rem] shadow-2xl border border-white/5 overflow-hidden ring-1 ring-white/5 min-h-[650px]">
+      <div className="relative z-10 w-full max-w-6xl flex flex-col lg:flex-row bg-[#080808] rounded-[2rem] shadow-2xl border border-white/5 overflow-hidden ring-1 ring-white/5 min-h-[500px]">
         
         {/* LEFT PANEL - DARKER Side (Deep Black/Indigo) */}
-        <div className="lg:w-5/12 relative p-10 lg:p-12 flex flex-col justify-between bg-black overflow-hidden shrink-0 text-white border-b lg:border-b-0 lg:border-r border-white/5">
+        <div className="lg:w-5/12 relative p-8 lg:p-10 flex flex-col justify-between bg-black overflow-hidden shrink-0 text-white border-b lg:border-b-0 lg:border-r border-white/5">
            
            {/* Deep Dark Gradient Overlay - Darker than button */}
            <div className="absolute inset-0 bg-gradient-to-b from-black via-[#050508] to-[#0a0a12] pointer-events-none"></div>
@@ -202,8 +202,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
            {/* Content */}
            <div className="relative z-10 flex flex-col h-full">
               {/* Logo Area */}
-              <div className="mb-10">
-                <div className="w-20 h-20 mb-6 filter drop-shadow-xl">
+              <div className="mb-8">
+                <div className="w-16 h-16 mb-4 filter drop-shadow-xl">
                    <svg viewBox="0 0 200 200" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <defs>
                         <linearGradient id="pinGradientAuth" x1="100" y1="25" x2="100" y2="190" gradientUnits="userSpaceOnUse">
@@ -235,7 +235,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                    </svg>
                 </div>
                 
-                <h1 className="text-4xl lg:text-5xl font-black tracking-tighter mb-4 leading-tight bg-gradient-to-br from-white via-slate-200 to-slate-500 bg-clip-text text-transparent">
+                <h1 className="text-3xl lg:text-4xl font-black tracking-tighter mb-2 leading-tight bg-gradient-to-br from-white via-slate-200 to-slate-500 bg-clip-text text-transparent">
                   RETRIVA
                 </h1>
                 <p className="text-sm text-slate-500 font-medium leading-relaxed max-w-sm">
@@ -243,10 +243,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 </p>
               </div>
               
-              <div className="h-px bg-white/5 w-full mb-8"></div>
+              <div className="h-px bg-white/5 w-full mb-6"></div>
 
               {/* Rich Features List */}
-              <div className="space-y-6 flex-1">
+              <div className="space-y-5 flex-1">
                  <div className="flex gap-4 group">
                     <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center shrink-0 group-hover:bg-indigo-500/10 group-hover:border-indigo-500/20 transition-all duration-300">
                       <BrainCircuit className="w-5 h-5 text-indigo-400" />
@@ -301,10 +301,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         </div>
 
         {/* RIGHT PANEL - Form (Slightly Lighter Dark) */}
-        <div className="lg:w-7/12 w-full flex flex-col p-8 lg:p-12 relative bg-[#0c0e14]">
+        <div className="lg:w-7/12 w-full flex flex-col p-8 lg:p-10 relative bg-[#0c0e14]">
            
            {/* Context Header */}
-           <div className="flex justify-between items-center mb-8 sm:mb-12">
+           <div className="flex justify-between items-center mb-6 sm:mb-8">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
                  <LockKeyhole className="w-3 h-3 text-emerald-500" />
                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Secure Campus Login</span>
@@ -316,8 +316,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
            </div>
 
            <div className="flex-1 flex flex-col justify-center max-w-md w-full mx-auto relative z-10">
-              <div className="mb-8">
-                 <h2 className="text-3xl font-black text-white mb-2 tracking-tight">
+              <div className="mb-6">
+                 <h2 className="text-2xl font-black text-white mb-2 tracking-tight">
                     {isLogin ? 'Welcome back' : 'Join Retriva'}
                  </h2>
                  <p className="text-slate-400 text-sm font-medium">
@@ -419,7 +419,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               </form>
 
               {/* GOOGLE SIGN IN - ENHANCED & FIXED */}
-              <div className="relative my-8">
+              <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-800"></div>
                 </div>
