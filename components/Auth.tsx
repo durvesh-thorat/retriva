@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, Sparkles, BrainCircuit, Search, ShieldCheck, LockKeyhole } from 'lucide-react';
+import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Search, ShieldCheck, LockKeyhole } from 'lucide-react';
 import { auth, db, googleProvider } from '../services/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signInWithPopup } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface AuthProps {
@@ -18,15 +18,29 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<{domain: string} | null>(null);
+  const [debugInfo, setDebugInfo] = useState<{domain: string, projectId: string} | null>(null);
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError(null);
-    setDebugInfo(null);
+  // 1. Handle Redirect Result (Runs when user comes back from Google Redirect)
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setLoading(true);
+          const firebaseUser = result.user;
+          await processLogin(firebaseUser);
+        }
+      } catch (err: any) {
+        console.error("Redirect Login Error:", err);
+        handleAuthError(err);
+      }
+    };
+    checkRedirect();
+  }, []);
+
+  // Shared function to process user data after Auth (Popup or Redirect)
+  const processLogin = async (firebaseUser: any) => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -38,7 +52,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           id: firebaseUser.uid,
           name: firebaseUser.displayName || 'Student',
           email: firebaseUser.email || '',
-          studentId: '', // User will need to fill this in profile
+          studentId: '', 
           isVerified: false,
           avatar: firebaseUser.photoURL || ''
         };
@@ -46,18 +60,51 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         onLogin(newUser);
       }
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/unauthorized-domain') {
-        const currentDomain = window.location.hostname;
-        setDebugInfo({ domain: currentDomain });
-        setError("Unauthorized Domain");
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        setError("Sign in cancelled.");
-      } else {
-        setError(err.message || "Google Sign In failed.");
-      }
-    } finally {
+      setError("Failed to save user data.");
       setLoading(false);
+    }
+  };
+
+  const handleAuthError = (err: any) => {
+    setLoading(false);
+    console.error(err);
+    
+    if (err.code === 'auth/unauthorized-domain') {
+      const currentDomain = window.location.hostname;
+      const projectId = auth.app.options.projectId || 'unknown';
+      setDebugInfo({ domain: currentDomain, projectId });
+      setError("Unauthorized Domain");
+    } else if (err.code === 'auth/popup-closed-by-user') {
+      setError("Sign in cancelled.");
+    } else if (err.code === 'auth/network-request-failed') {
+      setError("Network error. Check your connection or firewall.");
+    } else {
+      setError(err.message || "Authentication failed.");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError(null);
+    setDebugInfo(null);
+    
+    try {
+      // 1. Try Popup first (Better UX)
+      const result = await signInWithPopup(auth, googleProvider);
+      await processLogin(result.user);
+    } catch (err: any) {
+      // 2. Fallback to Redirect if Popup fails (Fixes COOP/Network/Mobile issues)
+      if (err.code === 'auth/network-request-failed' || err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+         console.warn("Popup failed, falling back to redirect...");
+         try {
+           await signInWithRedirect(auth, googleProvider);
+           // Function ends here, page will redirect
+         } catch (redirectErr: any) {
+           handleAuthError(redirectErr);
+         }
+      } else {
+        handleAuthError(err);
+      }
     }
   };
 
@@ -70,29 +117,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     try {
       if (isLogin) {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const firebaseUser = userCredential.user;
-        const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (userDoc.exists()) {
-          onLogin(userDoc.data() as User);
-        } else {
-          // Auto-heal
-          const fallbackUser: User = {
-            id: firebaseUser.uid,
-            name: firebaseUser.displayName || 'User',
-            email: firebaseUser.email || '',
-            studentId: '',
-            isVerified: false,
-            avatar: ''
-          };
-          await setDoc(userDocRef, fallbackUser);
-          onLogin(fallbackUser);
-        }
+        await processLogin(userCredential.user);
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const firebaseUser = userCredential.user;
         await updateProfile(firebaseUser, { displayName: name });
+        
         const newUser: User = {
           id: firebaseUser.uid,
           name: name, 
@@ -105,7 +135,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         onLogin(newUser);
       }
     } catch (err: any) {
-      console.error(err);
+      setLoading(false);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('Incorrect email or password.');
       } else if (err.code === 'auth/email-already-in-use') {
@@ -115,8 +145,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       } else {
         setError(err.message || 'Authentication failed.');
       }
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -287,6 +315,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     </div>
                     {debugInfo && (
                         <div className="mt-2 pl-8 text-xs text-red-400/80 font-mono bg-black/20 p-2 rounded w-full">
+                           <p><span className="font-bold text-red-400">Target Project:</span> {debugInfo.projectId}</p>
                            <p><span className="font-bold text-red-400">Current Domain:</span> {debugInfo.domain}</p>
                            <p className="mt-1 text-[10px] opacity-70">
                               (Mismatch? Update firebase.ts with your project keys)
