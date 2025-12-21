@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Chat, User, Message } from '../types';
-import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin } from 'lucide-react';
-import { doc, updateDoc, getDoc, collection, query, orderBy, onSnapshot, writeBatch, addDoc } from 'firebase/firestore';
+import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin, ChevronDown, Clock } from 'lucide-react';
+import { doc, updateDoc, getDoc, collection, query, orderBy, onSnapshot, writeBatch, addDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { uploadImage } from '../services/cloudinary';
 
@@ -22,13 +22,17 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const [searchQuery, setSearchQuery] = useState('');
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
-  const [otherUserOnline, setOtherUserOnline] = useState(false);
   
-  // New State for Subcollection Messages
+  // Enhanced Online/Last Seen State
+  const [otherUserOnline, setOtherUserOnline] = useState(false);
+  const [otherUserLastSeen, setOtherUserLastSeen] = useState<number | null>(null);
+  
   const [subcollectionMessages, setSubcollectionMessages] = useState<Message[]>([]);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const selectedChat = chats.find(c => c.id === activeChatId);
@@ -42,7 +46,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const otherParticipantId = selectedChat?.participants.find(p => p !== user.id);
   const isOtherUserTyping = selectedChat?.typing && Object.entries(selectedChat.typing).some(([uid, isTyping]) => uid !== user.id && isTyping);
 
-  // 0. Listen to Subcollection Messages (The Fix for 1MB Limit)
+  // 0. Listen to Subcollection Messages
   useEffect(() => {
     if (!activeChatId) {
         setSubcollectionMessages([]);
@@ -68,7 +72,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   // Merge Legacy Array Messages with New Subcollection Messages
   const allMessages = useMemo(() => {
      const legacyMessages = selectedChat?.messages || [];
-     // Create a map to deduplicate by ID if necessary (handling migration overlap)
      const messageMap = new Map();
      
      legacyMessages.forEach(m => messageMap.set(m.id || m.timestamp, m));
@@ -78,58 +81,75 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
      return combined.sort((a, b) => a.timestamp - b.timestamp);
   }, [selectedChat?.messages, subcollectionMessages]);
 
-  // 1. Mark messages as READ (Real-time update for subcollection)
+  // 1. Mark messages as READ
   useEffect(() => {
     if (activeChatId && subcollectionMessages.length > 0) {
-       // Filter messages sent by others that are NOT read
        const unreadDocs = subcollectionMessages.filter(m => m.senderId !== user.id && m.status !== 'read');
        
        if (unreadDocs.length > 0) {
            const batch = writeBatch(db);
            unreadDocs.forEach(msg => {
-               // Must have ID to update
                if (msg.id) {
                    const docRef = doc(db, 'chats', activeChatId, 'messages', msg.id);
                    batch.update(docRef, { status: 'read' });
                }
            });
            
-           // Also update legacy messages if any exist
-           if (selectedChat?.messages?.some(m => m.senderId !== user.id && m.status !== 'read')) {
-               const updatedLegacy = selectedChat.messages.map(m => 
-                   (m.senderId !== user.id && m.status !== 'read') ? { ...m, status: 'read' } : m
-               );
-               const chatRef = doc(db, 'chats', activeChatId);
-               batch.update(chatRef, { messages: updatedLegacy, unreadCount: 0 });
-           }
+           // Update parent chat doc
+           const chatRef = doc(db, 'chats', activeChatId);
+           batch.update(chatRef, { unreadCount: 0 });
 
            batch.commit().catch(e => console.error("Error marking read:", e));
        }
     }
-  }, [activeChatId, subcollectionMessages, selectedChat?.messages, user.id]);
+  }, [activeChatId, subcollectionMessages, user.id]);
 
-  // 2. Fetch Online Status of Other User (Real-time)
+  // 2. Fetch Online Status & Last Seen
   useEffect(() => {
      if (!otherParticipantId || isGlobal) return;
      
      const userRef = doc(db, 'users', otherParticipantId);
      const unsubscribe = onSnapshot(userRef, (snap) => {
         if (snap.exists()) {
-            setOtherUserOnline(snap.data().isOnline || false);
+            const data = snap.data();
+            setOtherUserOnline(data.isOnline || false);
+            setOtherUserLastSeen(data.lastSeen || null);
         } else {
             setOtherUserOnline(false);
+            setOtherUserLastSeen(null);
         }
      });
 
      return () => unsubscribe();
   }, [otherParticipantId, isGlobal]);
 
-  // 3. Scroll to bottom
+  // 3. Scroll Logic
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   useEffect(() => {
     if (allMessages.length > 0 || isOtherUserTyping) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // Only auto-scroll if we are already near bottom or it's the first load
+      const container = scrollContainerRef.current;
+      if (container) {
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 300;
+          if (isNearBottom) {
+              scrollToBottom();
+          }
+      } else {
+          scrollToBottom();
+      }
     }
   }, [allMessages.length, activeChatId, isOtherUserTyping]);
+
+  const handleScroll = () => {
+      const container = scrollContainerRef.current;
+      if (container) {
+          const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+          setShowScrollButton(distanceToBottom > 300);
+      }
+  };
 
   // 4. Handle Typing
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -177,12 +197,17 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
       await addDoc(messagesRef, msgData);
 
       const chatRef = doc(db, 'chats', activeChatId);
+      // Increment unread count for the recipient. 
+      // Note: In a real backend, we'd check who the recipient is, but for 1v1 we assume the other person is the recipient.
       await updateDoc(chatRef, {
         lastMessage: attachment ? (attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : textToSend,
         lastMessageTime: timestamp,
         deletedIds: [],
-        [`typing.${user.id}`]: false
+        [`typing.${user.id}`]: false,
+        unreadCount: increment(1) // Increment badge
       });
+      
+      scrollToBottom();
     } catch (error) {
       console.error("Error sending message:", error);
       alert("Failed to send message. Please check your connection.");
@@ -193,10 +218,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     const file = e.target.files?.[0];
     if (file && activeChatId && !theyBlockedMe) {
        try {
-         // Upload to Cloudinary first
          const secureUrl = await uploadImage(file);
-         
-         // Send message with the returned URL
          handleSendMessage(undefined, {
            type: file.type.startsWith('image/') ? 'image' : 'file',
            url: secureUrl
@@ -210,6 +232,27 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDateLabel = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const formatLastSeen = (timestamp: number) => {
+      const diff = Date.now() - timestamp;
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return 'Just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      return 'a while ago';
   };
 
   const filteredChats = chats.filter(c => 
@@ -289,6 +332,11 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                         ) : (
                         chat.lastMessage
                         )}
+                        {chat.unreadCount > 0 && activeChatId !== chat.id && (
+                           <span className="ml-auto w-4 h-4 rounded-full bg-brand-violet text-white text-[9px] font-bold flex items-center justify-center">
+                             {chat.unreadCount}
+                           </span>
+                        )}
                     </p>
                     </div>
                 </div>
@@ -334,7 +382,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                           <>
                            <span className={`w-2 h-2 rounded-full ${otherUserOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300'}`}></span>
                            <span className={`text-[10px] font-bold uppercase tracking-wide ${otherUserOnline ? 'text-emerald-500' : 'text-slate-500'}`}>
-                             {otherUserOnline ? 'Online' : 'Offline'}
+                             {otherUserOnline ? 'Online' : (otherUserLastSeen ? `Active ${formatLastSeen(otherUserLastSeen)}` : 'Offline')}
                            </span>
                           </>
                        )
@@ -372,65 +420,92 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
+            {/* Messages Area */}
+            <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4 relative scroll-smooth">
+              
               {allMessages.map((msg, idx) => {
                 const isMe = msg.senderId === user.id;
                 const showSender = isGlobal && !isMe;
                 
+                // Date Separator Logic
+                const prevMsg = allMessages[idx - 1];
+                const showDateSeparator = !prevMsg || new Date(msg.timestamp).toDateString() !== new Date(prevMsg.timestamp).toDateString();
+                
                 return (
-                  <div key={msg.id || idx} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex flex-col max-w-[80%] md:max-w-[70%] ${isMe ? 'items-end' : 'items-start'}`}>
-                      {showSender && (
-                        <span className="text-[10px] font-bold text-slate-400 mb-1 ml-1">{msg.senderName || 'Student'}</span>
-                      )}
-
-                      {msg.attachment && (
-                        <div className={`mb-2 rounded-2xl overflow-hidden border shadow-sm cursor-pointer ${isBlocked ? 'opacity-50 grayscale' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`} onClick={() => msg.attachment?.type === 'image' && setLightboxImg(msg.attachment.url)}>
-                             {msg.attachment.type === 'image' ? (
-                               <img src={msg.attachment.url} className="max-w-full max-h-60 object-cover" />
-                             ) : (
-                               <div className="p-4 bg-white dark:bg-slate-800 flex items-center gap-3">
-                                 <File className="w-8 h-8 text-brand-violet" />
-                                 <span className="text-xs font-bold">Attachment</span>
-                               </div>
-                             )}
-                        </div>
-                      )}
-                      
-                      {msg.text && (
-                         <div className={`px-5 py-3 text-sm font-medium leading-relaxed shadow-sm relative break-words ${
-                           isMe 
-                             ? (isBlocked ? 'bg-slate-400 text-white rounded-[1.25rem] rounded-tr-sm' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-[1.25rem] rounded-tr-sm shadow-indigo-500/20')
-                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-800 rounded-[1.25rem] rounded-tl-sm'
-                         }`}>
-                           {msg.text}
-                         </div>
-                      )}
-                      
-                      <div className={`flex items-center gap-1.5 mt-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <span className="text-[9px] font-bold text-slate-400 opacity-80">{formatTime(msg.timestamp)}</span>
-                        {isMe && !isGlobal && (
-                             msg.status === 'read' ? <CheckCheck className="w-3.5 h-3.5 text-brand-violet" /> : <Check className="w-3.5 h-3.5 text-slate-400" />
+                  <React.Fragment key={msg.id || idx}>
+                    {showDateSeparator && (
+                       <div className="flex justify-center my-4 sticky top-0 z-10">
+                          <span className="px-3 py-1 bg-slate-200/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-full text-[10px] font-bold text-slate-500 dark:text-slate-400 shadow-sm">
+                             {formatDateLabel(msg.timestamp)}
+                          </span>
+                       </div>
+                    )}
+                  
+                    <div className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`flex flex-col max-w-[80%] md:max-w-[70%] ${isMe ? 'items-end' : 'items-start'}`}>
+                        {showSender && (
+                          <span className="text-[10px] font-bold text-slate-400 mb-1 ml-1">{msg.senderName || 'Student'}</span>
                         )}
+
+                        {msg.attachment && (
+                          <div className={`mb-2 rounded-2xl overflow-hidden border shadow-sm cursor-pointer ${isBlocked ? 'opacity-50 grayscale' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`} onClick={() => msg.attachment?.type === 'image' && setLightboxImg(msg.attachment.url)}>
+                              {msg.attachment.type === 'image' ? (
+                                <img src={msg.attachment.url} className="max-w-full max-h-60 object-cover" />
+                              ) : (
+                                <div className="p-4 bg-white dark:bg-slate-800 flex items-center gap-3">
+                                  <File className="w-8 h-8 text-brand-violet" />
+                                  <span className="text-xs font-bold">Attachment</span>
+                                </div>
+                              )}
+                          </div>
+                        )}
+                        
+                        {msg.text && (
+                          <div className={`px-5 py-3 text-sm font-medium leading-relaxed shadow-sm relative break-words ${
+                            isMe 
+                              ? (isBlocked ? 'bg-slate-400 text-white rounded-[1.25rem] rounded-tr-sm' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-[1.25rem] rounded-tr-sm shadow-indigo-500/20')
+                              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-800 rounded-[1.25rem] rounded-tl-sm'
+                          }`}>
+                            {msg.text}
+                          </div>
+                        )}
+                        
+                        <div className={`flex items-center gap-1.5 mt-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                          <span className="text-[9px] font-bold text-slate-400 opacity-80">{formatTime(msg.timestamp)}</span>
+                          {isMe && !isGlobal && (
+                               msg.status === 'read' 
+                               ? <CheckCheck className="w-3.5 h-3.5 text-brand-violet" /> 
+                               : <CheckCheck className="w-3.5 h-3.5 text-slate-300" />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </React.Fragment>
                 );
               })}
               
-              {/* Typing Indicator Bubble - Better Implementation */}
+              {/* Typing Indicator */}
               {isOtherUserTyping && (
                   <div className="flex w-full justify-start animate-fade-in">
                       <div className="bg-white dark:bg-slate-900 px-4 py-3 rounded-[1.25rem] rounded-tl-sm border border-slate-100 dark:border-slate-800 flex gap-1.5 items-center shadow-sm">
-                          <span className="w-2 h-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce"></span>
-                          <span className="w-2 h-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce delay-100"></span>
-                          <span className="w-2 h-2 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce delay-200"></span>
+                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"></span>
+                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce delay-100"></span>
+                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce delay-200"></span>
                       </div>
                   </div>
               )}
               
               <div ref={messagesEndRef} />
+              
+              {/* Scroll To Bottom Button */}
+              {showScrollButton && (
+                  <button 
+                    onClick={scrollToBottom}
+                    className="fixed bottom-24 right-6 md:absolute md:bottom-6 md:right-6 p-2 bg-slate-900/80 dark:bg-white/90 text-white dark:text-slate-900 rounded-full shadow-xl hover:scale-110 transition-transform z-20 backdrop-blur-md"
+                  >
+                     <ChevronDown className="w-5 h-5" />
+                  </button>
+              )}
             </div>
 
             {/* Input */}
