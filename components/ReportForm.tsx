@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ItemReport, ReportType, ItemCategory, User } from '../types';
 import { analyzeItemDescription, instantImageCheck, extractVisualDetails, mergeDescriptions } from '../services/geminiService';
-import { compressImage } from '../services/imageCompression';
+import { uploadImage } from '../services/cloudinary';
 import { Loader2, MapPin, X, Check, Sparkles, Box, SearchX, ShieldBan, UploadCloud, AlertCircle, Wand2, Info, LayoutTemplate, Palette, Tag } from 'lucide-react';
 
 interface ReportFormProps {
@@ -22,7 +22,8 @@ type AIFeedback = {
 };
 
 interface ImageStatus {
-  url: string;
+  url: string; // Base64 for preview, or Cloudinary URL for existing
+  file?: File; // Raw file to upload
   status: 'checking' | 'valid' | 'prank' | 'caution';
   reason?: string;
 }
@@ -102,10 +103,10 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
       reader.onloadend = async () => {
         const base64 = reader.result as string;
         
-        // Optimistic UI update
-        setImageStatuses(prev => [...prev, { url: base64, status: 'checking' }]);
+        // Optimistic UI update: Store base64 for preview, FILE for upload
+        setImageStatuses(prev => [...prev, { url: base64, file: file, status: 'checking' }]);
         
-        // A. Security Check
+        // A. Security Check (Uses Base64)
         const security = await instantImageCheck(base64);
         if (security.violationType !== 'NONE') {
            setImageStatuses(prev => prev.map(s => s.url === base64 ? { ...s, status: 'prank' } : s));
@@ -178,6 +179,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
     setIsVerifyingFinal(true);
 
     try {
+      // For AI check, we use the preview URLs (which are Base64 for new images)
+      // If editing and URL is http, AI check might skip visual part, which is acceptable
       const finalCheck = await analyzeItemDescription(description, imageStatuses.map(s => s.url), title);
       
       if (finalCheck.isViolating || finalCheck.isPrank) {
@@ -186,8 +189,21 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
       }
 
       setIsSubmitting(true);
-      const rawImages = imageStatuses.filter(s => s.status !== 'prank').map(s => s.url);
-      const compressedImages = await Promise.all(rawImages.map(url => compressImage(url)));
+      
+      // UPLOAD TO CLOUDINARY HERE
+      // We map over statuses: if there is a 'file' property, upload it. If not, keep the existing 'url'.
+      const validImages = imageStatuses.filter(s => s.status !== 'prank');
+      
+      const uploadPromises = validImages.map(async (img) => {
+        if (img.file) {
+          // It's a new image, upload raw file
+          return await uploadImage(img.file);
+        }
+        // It's an existing image (edit mode), keep URL
+        return img.url;
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
 
       const report: ItemReport = {
         id: initialData?.id || crypto.randomUUID(),
@@ -200,7 +216,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         location,
         date: formatToDDMMYYYY(date),
         time,
-        imageUrls: compressedImages,
+        imageUrls: uploadedUrls, // Cloudinary URLs
         tags: finalCheck.tags || tags,
         status: initialData?.status || 'OPEN',
         reporterId: user.id,
@@ -209,7 +225,8 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
       };
       onSubmit(report);
     } catch (error) {
-      setFormError("Submission failed. Try again.");
+      console.error(error);
+      setFormError("Submission failed. Check your connection or try again.");
     } finally {
       setIsVerifyingFinal(false);
       setIsSubmitting(false);
@@ -241,7 +258,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
            <div className="absolute inset-0 z-[70] bg-white/80 dark:bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center">
              <Loader2 className="w-10 h-10 text-indigo-500 animate-spin mb-4" />
              <p className="font-bold text-slate-900 dark:text-white animate-pulse">
-               {isSubmitting ? "Submitting..." : isAutofilling ? "Extracting Details..." : isMerging ? "Merging Descriptions..." : "Verifying..."}
+               {isSubmitting ? "Uploading & Submitting..." : isAutofilling ? "Extracting Details..." : isMerging ? "Merging Descriptions..." : "Verifying..."}
              </p>
            </div>
         )}

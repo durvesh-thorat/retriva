@@ -4,6 +4,7 @@ import { Chat, User, Message } from '../types';
 import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin } from 'lucide-react';
 import { doc, updateDoc, getDoc, collection, query, orderBy, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { uploadImage } from '../services/cloudinary';
 
 interface ChatViewProps {
   user: User;
@@ -171,17 +172,22 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false }).catch(() => {});
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && activeChatId && !theyBlockedMe) {
-       const reader = new FileReader();
-       reader.onloadend = () => {
+       try {
+         // Upload to Cloudinary first
+         const secureUrl = await uploadImage(file);
+         
+         // Send message with the returned URL
          handleSendMessage(undefined, {
            type: file.type.startsWith('image/') ? 'image' : 'file',
-           url: reader.result as string
+           url: secureUrl
          });
-       };
-       reader.readAsDataURL(file);
+       } catch (error) {
+         console.error("Failed to upload file:", error);
+         alert("Failed to upload attachment.");
+       }
     }
   };
 

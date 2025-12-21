@@ -5,7 +5,7 @@ import { User as UserIcon, Mail, Building, Save, Camera, ArrowLeft, Loader2, Tra
 import { db, auth } from '../services/firebase';
 import { updateProfile } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import { compressImage } from '../services/imageCompression';
+import { uploadImage } from '../services/cloudinary';
 
 interface ProfileProps {
   user: User;
@@ -19,6 +19,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
   const [name, setName] = useState(user.name);
   const [department, setDepartment] = useState(user.department || '');
   const [avatar, setAvatar] = useState(user.avatar || '');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +33,8 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-         setAvatar(reader.result as string);
+         setAvatar(reader.result as string); // Preview with Base64
+         setSelectedFile(file); // Store file for upload
          setAvatarError(false);
       };
       reader.readAsDataURL(file);
@@ -44,10 +46,10 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
     setIsSaving(true);
     
     try {
-      // 1. Compress Avatar if it's new/large
-      let compressedAvatar = avatar;
-      if (avatar && avatar.startsWith('data:')) {
-         compressedAvatar = await compressImage(avatar, 200, 0.7); // Smaller for profile pics
+      // 1. Upload new Avatar if selected
+      let finalAvatarUrl = avatar;
+      if (selectedFile) {
+         finalAvatarUrl = await uploadImage(selectedFile);
       }
 
       // 2. Update Firebase Auth Profile (Display Name ONLY)
@@ -62,11 +64,12 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
       await setDoc(userRef, {
          name,
          department,
-         avatar: compressedAvatar
+         avatar: finalAvatarUrl
       }, { merge: true });
 
       // 4. Update Local State
-      onUpdate({ ...user, name, department, avatar: compressedAvatar });
+      onUpdate({ ...user, name, department, avatar: finalAvatarUrl });
+      setSelectedFile(null); // Reset file selection
     } catch (e) {
       console.error("Error saving profile:", e);
       alert("Failed to save changes. Please try again.");
@@ -113,7 +116,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
               {avatar && (
                  <button 
                    type="button" 
-                   onClick={() => setAvatar('')} 
+                   onClick={() => { setAvatar(''); setSelectedFile(null); }} 
                    className="mt-4 sm:mt-0 sm:self-end px-3 py-1.5 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors flex items-center gap-1.5"
                  >
                     <Trash2 className="w-3.5 h-3.5" /> Remove Photo
