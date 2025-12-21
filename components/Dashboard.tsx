@@ -200,18 +200,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
                         Find your items instantly with Retriva's smart matching engine.
                       </p>
 
-                      {/* NEW FEATURES BUTTON: Under the Hood */}
+                      {/* NEW FEATURES BUTTON: Under the Hood - UPDATED DESIGN */}
                       <button 
                         onClick={() => onNavigate('FEATURES')}
-                        className="relative group inline-flex items-center gap-3 px-6 py-3 bg-slate-950 hover:bg-slate-900 border border-white/10 hover:border-cyan-500/50 transition-all duration-300 rounded-xl overflow-hidden shadow-xl hover:shadow-cyan-500/20 hover:-translate-y-0.5"
+                        className="group relative inline-flex items-center gap-3 px-8 py-4 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-500/30 transition-all duration-500 shadow-xl hover:shadow-indigo-500/20 hover:-translate-y-1 overflow-hidden backdrop-blur-sm"
                       >
-                         {/* Tech Scan Effect */}
-                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent -translate-x-full group-hover:animate-shimmer-fast pointer-events-none"></div>
+                         {/* Animated Gradient Background on Hover */}
+                         <div className="absolute inset-0 bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-indigo-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 animate-gradient-slow"></div>
                          
+                         {/* Tech Scan Line */}
+                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer-fast pointer-events-none"></div>
+
                          <div className="relative flex items-center gap-3">
-                             <Cpu className="w-4 h-4 text-cyan-500 group-hover:text-cyan-400 transition-colors" />
-                             <span className="text-slate-300 group-hover:text-white font-bold text-sm tracking-wide transition-colors">Under the Hood</span>
-                             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
+                             <div className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-500/20 group-hover:bg-indigo-500 text-indigo-400 group-hover:text-white transition-all duration-300">
+                                <Cpu className="w-4 h-4" />
+                             </div>
+                             <span className="text-slate-300 group-hover:text-white font-bold text-sm tracking-wide transition-colors uppercase">Under the Hood</span>
+                             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white group-hover:translate-x-1 transition-all" />
                          </div>
                       </button>
                   </div>
