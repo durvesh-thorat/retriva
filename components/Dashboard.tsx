@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, ItemCategory, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, Clock, Calendar, ArrowRight, Fingerprint, RefreshCw, Loader2, ScanLine, History, CheckCircle2, Zap } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, Clock, Calendar, ArrowRight, Fingerprint, RefreshCw, Loader2, ScanLine, History, CheckCircle2, Zap, Cpu } from 'lucide-react';
 import ReportDetails from './ReportDetails';
 import { parseSearchQuery, findPotentialMatches } from '../services/geminiService';
 
@@ -200,14 +200,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
                         Find your items instantly with Retriva's smart matching engine.
                       </p>
 
-                      {/* NEW FEATURES BUTTON */}
+                      {/* NEW FEATURES BUTTON: Under the Hood */}
                       <button 
                         onClick={() => onNavigate('FEATURES')}
-                        className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] hover:bg-right transition-all duration-500 rounded-xl text-white font-bold text-sm shadow-xl shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:-translate-y-0.5"
+                        className="relative group inline-flex items-center gap-3 px-6 py-3 bg-slate-950 hover:bg-slate-900 border border-white/10 hover:border-cyan-500/50 transition-all duration-300 rounded-xl overflow-hidden shadow-xl hover:shadow-cyan-500/20 hover:-translate-y-0.5"
                       >
-                         <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300" />
-                         <span>Discover the Magic</span>
-                         <ArrowRight className="w-4 h-4 opacity-70" />
+                         {/* Tech Scan Effect */}
+                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent -translate-x-full group-hover:animate-shimmer-fast pointer-events-none"></div>
+                         
+                         <div className="relative flex items-center gap-3">
+                             <Cpu className="w-4 h-4 text-cyan-500 group-hover:text-cyan-400 transition-colors" />
+                             <span className="text-slate-300 group-hover:text-white font-bold text-sm tracking-wide transition-colors">Under the Hood</span>
+                             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
+                         </div>
                       </button>
                   </div>
 
