@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 
@@ -57,8 +56,8 @@ const GOOGLE_CASCADE = [
 ];
 
 // Fallback Model (Groq)
-// UPDATED: 11b decommissioned, switching to 90b vision preview or versatile if vision fails
-const GROQ_MODEL = 'llama-3.2-90b-vision-preview'; 
+// UPDATED: Replaced decommissioned vision model with recommended scout model.
+const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; 
 
 /**
  * Robust JSON Cleaner: Extracts the first valid JSON object from a string.
@@ -84,31 +83,26 @@ const cleanJSON = (text: string): string => {
 
 /**
  * ADAPTER: Converts Gemini Input Format to Groq (OpenAI-compat) Format
+ * NOTE: Since we are using a Text-Only fallback logic for stability, we must convert/strip images to text notes.
+ * If the new model supports vision, this can be updated to send image_url payloads.
  */
 const convertGeminiToGroq = (contents: any) => {
   const parts = contents.parts || [];
-  const contentArray: any[] = [];
+  let fullText = "";
 
   parts.forEach((part: any) => {
     if (part.text) {
-      contentArray.push({ type: "text", text: part.text });
+      fullText += part.text + "\n";
     } else if (part.inlineData) {
-      // Groq expects data URL
-      const mimeType = part.inlineData.mimeType || "image/jpeg";
-      const base64 = part.inlineData.data;
-      contentArray.push({
-        type: "image_url",
-        image_url: {
-          url: `data:${mimeType};base64,${base64}`
-        }
-      });
+      // We add a placeholder so the model knows an image was there.
+      fullText += "\n[System Note: The user uploaded an image. Please infer details from the user's text description if available, or ask for a text description as direct image processing is currently bridged to text-only fallback.]\n";
     }
   });
 
   return [
     {
       role: "user",
-      content: contentArray
+      content: fullText.trim()
     }
   ];
 };
@@ -225,7 +219,7 @@ const generateWithCascade = async (
   }
 
   // ---------------------------------------------------------
-  // 2. FALLBACK TO GROQ (LLAMA 3.2 VISION)
+  // 2. FALLBACK TO GROQ
   // ---------------------------------------------------------
   console.warn("Gemini exhausted/failed. Switching to Groq fallback...");
   
@@ -236,7 +230,7 @@ const generateWithCascade = async (
       
       const completion = await callGroqAPI(messages, isJson);
 
-      console.info("%c✅ FALLBACK SUCCESS: Groq (Llama 3.2) generated response.", "color: #00ff00; font-weight: bold; font-size: 12px;");
+      console.info("%c✅ FALLBACK SUCCESS: Groq generated response.", "color: #00ff00; font-weight: bold; font-size: 12px;");
 
       // DISPATCH EVENT FOR UI TOAST
       if (typeof window !== 'undefined') {
