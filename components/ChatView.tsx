@@ -2,8 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Chat, User, Message } from '../types';
 import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin, ChevronDown, Clock } from 'lucide-react';
-import { doc, updateDoc, getDoc, collection, query, orderBy, onSnapshot, writeBatch, addDoc, increment } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { db, FieldValue } from '../services/firebase';
 import { uploadImage } from '../services/cloudinary';
 
 interface ChatViewProps {
@@ -53,10 +52,10 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
         return;
     }
 
-    const messagesRef = collection(db, 'chats', activeChatId, 'messages');
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+    const messagesRef = db.collection('chats').doc(activeChatId).collection('messages');
+    const q = messagesRef.orderBy('timestamp', 'asc');
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = q.onSnapshot((snapshot) => {
         const msgs = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
@@ -87,16 +86,16 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
        const unreadDocs = subcollectionMessages.filter(m => m.senderId !== user.id && m.status !== 'read');
        
        if (unreadDocs.length > 0) {
-           const batch = writeBatch(db);
+           const batch = db.batch();
            unreadDocs.forEach(msg => {
                if (msg.id) {
-                   const docRef = doc(db, 'chats', activeChatId, 'messages', msg.id);
+                   const docRef = db.collection('chats').doc(activeChatId).collection('messages').doc(msg.id);
                    batch.update(docRef, { status: 'read' });
                }
            });
            
            // Update parent chat doc
-           const chatRef = doc(db, 'chats', activeChatId);
+           const chatRef = db.collection('chats').doc(activeChatId);
            batch.update(chatRef, { unreadCount: 0 });
 
            batch.commit().catch(e => console.error("Error marking read:", e));
@@ -108,12 +107,12 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   useEffect(() => {
      if (!otherParticipantId || isGlobal) return;
      
-     const userRef = doc(db, 'users', otherParticipantId);
-     const unsubscribe = onSnapshot(userRef, (snap) => {
-        if (snap.exists()) {
+     const userRef = db.collection('users').doc(otherParticipantId);
+     const unsubscribe = userRef.onSnapshot((snap) => {
+        if (snap.exists) {
             const data = snap.data();
-            setOtherUserOnline(data.isOnline || false);
-            setOtherUserLastSeen(data.lastSeen || null);
+            setOtherUserOnline(data?.isOnline || false);
+            setOtherUserLastSeen(data?.lastSeen || null);
         } else {
             setOtherUserOnline(false);
             setOtherUserLastSeen(null);
@@ -159,14 +158,14 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
       if (!typing) {
           setTyping(true);
-          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: true }).catch(() => {});
+          db.collection('chats').doc(activeChatId).update({ [`typing.${user.id}`]: true }).catch(() => {});
       }
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       
       typingTimeoutRef.current = setTimeout(() => {
           setTyping(false);
-          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false }).catch(() => {});
+          db.collection('chats').doc(activeChatId).update({ [`typing.${user.id}`]: false }).catch(() => {});
       }, 3000);
   };
 
@@ -193,18 +192,18 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     }
 
     try {
-      const messagesRef = collection(db, 'chats', activeChatId, 'messages');
-      await addDoc(messagesRef, msgData);
+      const messagesRef = db.collection('chats').doc(activeChatId).collection('messages');
+      await messagesRef.add(msgData);
 
-      const chatRef = doc(db, 'chats', activeChatId);
+      const chatRef = db.collection('chats').doc(activeChatId);
       // Increment unread count for the recipient. 
       // Note: In a real backend, we'd check who the recipient is, but for 1v1 we assume the other person is the recipient.
-      await updateDoc(chatRef, {
+      await chatRef.update({
         lastMessage: attachment ? (attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : textToSend,
         lastMessageTime: timestamp,
         deletedIds: [],
         [`typing.${user.id}`]: false,
-        unreadCount: increment(1) // Increment badge
+        unreadCount: FieldValue.increment(1) // Increment badge
       });
       
       scrollToBottom();

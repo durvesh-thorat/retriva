@@ -1,7 +1,7 @@
 
-import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import firebase from 'firebase/app';
+import 'firebase/auth';
+import 'firebase/firestore';
 
 // ------------------------------------------------------------------
 // IMPORTANT: CONFIGURATION REQUIRED
@@ -26,9 +26,11 @@ const firebaseConfig = {
   measurementId: "G-1VS8EVKFVK"
 };
 
-const app = initializeApp(firebaseConfig);
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
 
-// Export authentication and database services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
+export const auth = firebase.auth();
+export const db = firebase.firestore();
+export const googleProvider = new firebase.auth.GoogleAuthProvider();
+export const FieldValue = firebase.firestore.FieldValue;

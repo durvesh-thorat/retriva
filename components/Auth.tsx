@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Search, ShieldCheck, LockKeyhole } from 'lucide-react';
 import { auth, db, googleProvider } from '../services/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -29,8 +27,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
   useEffect(() => {
     const checkRedirect = async () => {
       try {
-        const result = await getRedirectResult(auth);
-        if (result) {
+        const result = await auth.getRedirectResult();
+        if (result && result.user) {
           setIsGoogleLoading(true);
           const firebaseUser = result.user;
           await processLogin(firebaseUser);
@@ -47,10 +45,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
   // Shared function to process user data after Auth (Popup or Redirect)
   const processLogin = async (firebaseUser: any) => {
     try {
-      const userDocRef = doc(db, 'users', firebaseUser.uid);
-      const userDoc = await getDoc(userDocRef);
+      const userDocRef = db.collection('users').doc(firebaseUser.uid);
+      const userDoc = await userDocRef.get();
 
-      if (userDoc.exists()) {
+      if (userDoc.exists) {
         onLogin(userDoc.data() as User);
       } else {
         // Create new user from Google Profile
@@ -62,7 +60,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
           isVerified: false,
           avatar: firebaseUser.photoURL || ''
         };
-        await setDoc(userDocRef, newUser);
+        await userDocRef.set(newUser);
         onLogin(newUser);
       }
     } catch (err: any) {
@@ -77,6 +75,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
     
     if (err.code === 'auth/unauthorized-domain') {
       const currentDomain = window.location.hostname;
+      // @ts-ignore
       const projectId = auth.app.options.projectId || 'unknown';
       setDebugInfo({ domain: currentDomain, projectId });
       setError("Unauthorized Domain");
@@ -98,7 +97,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
     
     try {
       // 1. Try Popup first (Better UX)
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await auth.signInWithPopup(googleProvider);
       await processLogin(result.user);
     } catch (err: any) {
       // Check for popup closure specifically to handle gracefully
@@ -112,7 +111,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
       if (err.code === 'auth/network-request-failed' || err.code === 'auth/popup-blocked') {
          console.warn("Popup failed, falling back to redirect...");
          try {
-           await signInWithRedirect(auth, googleProvider);
+           await auth.signInWithRedirect(googleProvider);
            // Function ends here, page will redirect
          } catch (redirectErr: any) {
            handleAuthError(redirectErr);
@@ -135,23 +134,25 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
     
     try {
       if (isLogin) {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
         await processLogin(userCredential.user);
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const firebaseUser = userCredential.user;
-        await updateProfile(firebaseUser, { displayName: name });
-        
-        const newUser: User = {
-          id: firebaseUser.uid,
-          name: name, 
-          email: email,
-          studentId: '2025-' + Math.floor(1000 + Math.random() * 9000), 
-          isVerified: false,
-          avatar: ''
-        };
-        await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
-        onLogin(newUser);
+        if (firebaseUser) {
+          await firebaseUser.updateProfile({ displayName: name });
+          
+          const newUser: User = {
+            id: firebaseUser.uid,
+            name: name, 
+            email: email,
+            studentId: '2025-' + Math.floor(1000 + Math.random() * 9000), 
+            isVerified: false,
+            avatar: ''
+          };
+          await db.collection('users').doc(firebaseUser.uid).set(newUser);
+          onLogin(newUser);
+        }
       }
     } catch (err: any) {
       setIsEmailLoading(false);

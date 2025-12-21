@@ -14,9 +14,7 @@ import { User, ViewState, ItemReport, ReportType, ItemCategory, AppNotification,
 import { MessageCircle, Bell, Moon, Sun, User as UserIcon, Plus, SearchX, Box, Loader2 } from 'lucide-react';
 
 // FIREBASE IMPORTS
-import { auth, db } from './services/firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, query, orderBy, where, arrayUnion, writeBatch, arrayRemove } from 'firebase/firestore';
+import { auth, db, FieldValue } from './services/firebase';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -56,16 +54,16 @@ const App: React.FC = () => {
 
   // 1. AUTH LISTENER: Persist Login & Presence
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         // Fetch full profile from Firestore
-        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDocRef = db.collection('users').doc(firebaseUser.uid);
         try {
-          const userSnap = await getDoc(userDocRef);
-          if (userSnap.exists()) {
+          const userSnap = await userDocRef.get();
+          if (userSnap.exists) {
              setUser(userSnap.data() as User);
              // Set Online
-             updateDoc(userDocRef, { isOnline: true, lastSeen: Date.now() });
+             userDocRef.update({ isOnline: true, lastSeen: Date.now() });
           } else {
              // Basic fallback
              const fallbackUser = {
@@ -75,7 +73,7 @@ const App: React.FC = () => {
                isVerified: false
              };
              setUser(fallbackUser);
-             setDoc(userDocRef, { ...fallbackUser, isOnline: true, lastSeen: Date.now() });
+             userDocRef.set({ ...fallbackUser, isOnline: true, lastSeen: Date.now() });
           }
 
           // RESTORE PREVIOUS STATE (View & Active Chat)
@@ -123,7 +121,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     const interval = setInterval(() => {
-        updateDoc(doc(db, 'users', user.id), { lastSeen: Date.now(), isOnline: true });
+        db.collection('users').doc(user.id).update({ lastSeen: Date.now(), isOnline: true });
     }, 60000); // Every minute
 
     const handleDisconnect = () => {
@@ -144,11 +142,9 @@ const App: React.FC = () => {
     // Only subscribe if we are logged in
     if (!user) return;
 
-    const reportsRef = collection(db, 'reports');
-    // Order by createdAt desc (newest first)
-    const q = query(reportsRef, orderBy('createdAt', 'desc'));
+    const reportsRef = db.collection('reports').orderBy('createdAt', 'desc');
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = reportsRef.onSnapshot((snapshot) => {
       const liveReports = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -167,10 +163,10 @@ const App: React.FC = () => {
     if (!user) return;
 
     // A. Ensure Global Chat Exists
-    const globalChatRef = doc(db, 'chats', 'global');
-    getDoc(globalChatRef).then(snap => {
-      if (!snap.exists()) {
-        setDoc(globalChatRef, {
+    const globalChatRef = db.collection('chats').doc('global');
+    globalChatRef.get().then(snap => {
+      if (!snap.exists) {
+        globalChatRef.set({
           id: 'global',
           type: 'global',
           itemTitle: 'Campus Community',
@@ -184,8 +180,8 @@ const App: React.FC = () => {
     });
 
     // B. Listen to Global Chat
-    const unsubGlobal = onSnapshot(globalChatRef, (docSnap) => {
-      if (docSnap.exists()) {
+    const unsubGlobal = globalChatRef.onSnapshot((docSnap) => {
+      if (docSnap.exists) {
         const globalData = docSnap.data() as Chat;
         setChats(prev => {
           const filtered = prev.filter(c => c.id !== 'global');
@@ -195,8 +191,8 @@ const App: React.FC = () => {
     });
 
     // C. Listen to My Chats
-    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.id));
-    const unsubPrivate = onSnapshot(q, (snapshot) => {
+    const q = db.collection('chats').where('participants', 'array-contains', user.id);
+    const unsubPrivate = q.onSnapshot((snapshot) => {
       const privateChats = snapshot.docs.map(d => d.data() as Chat);
       setChats(prev => {
          const global = prev.find(c => c.id === 'global');
@@ -246,16 +242,16 @@ const App: React.FC = () => {
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
     // Don't force DASHBOARD here, Auth Listener handles view restoration
-    updateDoc(doc(db, 'users', loggedInUser.id), { isOnline: true, lastSeen: Date.now() });
+    db.collection('users').doc(loggedInUser.id).update({ isOnline: true, lastSeen: Date.now() });
     setTimeout(() => addNotification('Welcome!', `Logged in as ${loggedInUser.name}`, 'system'), 1000);
   };
 
   const handleLogout = async () => {
     try {
       if (user) {
-        await updateDoc(doc(db, 'users', user.id), { isOnline: false, lastSeen: Date.now() });
+        await db.collection('users').doc(user.id).update({ isOnline: false, lastSeen: Date.now() });
       }
-      await signOut(auth);
+      await auth.signOut();
       
       // Clear Local Storage State
       localStorage.removeItem('retriva_view');
@@ -275,7 +271,7 @@ const App: React.FC = () => {
 
     setAuthLoading(true);
     try {
-        const batch = writeBatch(db);
+        const batch = db.batch();
 
         // 1. Delete Reports (Optimistic UI update)
         setReports(prev => prev.filter(r => r.reporterId !== user.id));
@@ -283,8 +279,11 @@ const App: React.FC = () => {
         // 2. Remove user from Chats (Handled by backend triggers usually, soft delete here)
         
         // 3. Delete User Doc
-        await deleteDoc(doc(db, 'users', user.id));
+        batch.delete(db.collection('users').doc(user.id));
         
+        // Commit batch
+        await batch.commit();
+
         // 4. Auth Delete
         await auth.currentUser?.delete();
         
@@ -307,16 +306,14 @@ const App: React.FC = () => {
     try {
       if (editingReport) {
         // UPDATE Existing Report
-        const reportRef = doc(db, 'reports', report.id);
+        const reportRef = db.collection('reports').doc(report.id);
         const { id, ...reportData } = report;
-        await updateDoc(reportRef, reportData as any);
+        await reportRef.update(reportData as any);
         
         setEditingReport(null);
         addNotification('Updated', 'Report updated successfully.', 'system');
       } else {
-        await deleteDoc(doc(db, 'reports', report.id)); // Safety check if exists
-        await import('firebase/firestore').then(fs => fs.setDoc(fs.doc(db, 'reports', report.id), report));
-        
+        await db.collection('reports').doc(report.id).set(report);
         addNotification('Posted', 'Your report is now live.', 'system');
       }
       setView('DASHBOARD');
@@ -329,7 +326,7 @@ const App: React.FC = () => {
 
   const handleDeleteReport = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'reports', id));
+      await db.collection('reports').doc(id).delete();
       setToast({ message: "Report deleted.", type: 'info' });
     } catch (e) {
       console.error("Error deleting:", e);
@@ -344,8 +341,8 @@ const App: React.FC = () => {
 
   const handleResolveReport = async (reportId: string) => {
     try {
-      const reportRef = doc(db, 'reports', reportId);
-      await updateDoc(reportRef, { status: 'RESOLVED' });
+      const reportRef = db.collection('reports').doc(reportId);
+      await reportRef.update({ status: 'RESOLVED' });
       setToast({ message: "Item marked as resolved!", type: 'success' });
     } catch (e) {
       setToast({ message: "Update failed.", type: 'alert' });
@@ -381,8 +378,8 @@ const App: React.FC = () => {
       setActiveChatId(existingChat.id);
       setView('MESSAGES');
       if (existingChat.deletedIds?.includes(user.id)) {
-          updateDoc(doc(db, 'chats', existingChat.id), {
-              deletedIds: arrayRemove(user.id)
+          db.collection('chats').doc(existingChat.id).update({
+              deletedIds: FieldValue.arrayRemove(user.id)
           });
       }
     } else {
@@ -404,7 +401,7 @@ const App: React.FC = () => {
       };
       
       try {
-        await setDoc(doc(db, 'chats', newChatId), newChat);
+        await db.collection('chats').doc(newChatId).set(newChat);
         setActiveChatId(newChatId);
         setView('MESSAGES');
       } catch (e) {
@@ -420,7 +417,7 @@ const App: React.FC = () => {
 
     try {
       const newStatus = !chat.isBlocked;
-      await updateDoc(doc(db, 'chats', chatId), {
+      await db.collection('chats').doc(chatId).update({
         isBlocked: newStatus,
         blockedBy: newStatus ? user?.id : null
       });
@@ -436,9 +433,9 @@ const App: React.FC = () => {
   const handleDeleteChat = async (chatId: string) => {
       if (!user) return;
       try {
-          const chatRef = doc(db, 'chats', chatId);
-          await updateDoc(chatRef, {
-              deletedIds: arrayUnion(user.id)
+          const chatRef = db.collection('chats').doc(chatId);
+          await chatRef.update({
+              deletedIds: FieldValue.arrayUnion(user.id)
           });
           if (activeChatId === chatId) setActiveChatId(null);
           setToast({ message: "Chat removed.", type: 'info' });
@@ -631,9 +628,7 @@ const App: React.FC = () => {
         </nav>
       )}
 
-      {/* Main Container - Remove padding if on Features Page for immersive effect, OR keep it. 
-          The design prompt requested a "Brand New Page", implies fullscreen. 
-          Let's conditionally hide the main nav if view === 'FEATURES' */}
+      {/* Main Container */}
       <main className={`flex-grow w-full mx-auto relative ${view === 'FEATURES' ? '' : 'p-4 md:p-6 max-w-[1400px]'}`}>
         {renderContent()}
 

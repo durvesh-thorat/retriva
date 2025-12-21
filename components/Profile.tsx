@@ -3,8 +3,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
 import { User as UserIcon, Mail, Building, Save, Camera, ArrowLeft, Loader2, Trash2, Edit3, AlertTriangle, LogOut } from 'lucide-react';
 import { db, auth } from '../services/firebase';
-import { updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
 import { uploadImage } from '../services/cloudinary';
 
 interface ProfileProps {
@@ -54,14 +52,14 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
 
       // 2. Update Firebase Auth Profile (Display Name ONLY)
       if (auth.currentUser) {
-         await updateProfile(auth.currentUser, { 
+         await auth.currentUser.updateProfile({ 
             displayName: name
          });
       }
 
       // 3. Update Firestore Document
-      const userRef = doc(db, 'users', user.id);
-      await setDoc(userRef, {
+      const userRef = db.collection('users').doc(user.id);
+      await userRef.set({
          name,
          department,
          avatar: finalAvatarUrl
