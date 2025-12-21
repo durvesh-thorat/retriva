@@ -8,9 +8,10 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface AuthProps {
   onLogin: (user: User) => void;
+  onShowLegal: () => void;
 }
 
-const Auth: React.FC<AuthProps> = ({ onLogin }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -318,8 +319,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Secure Campus Login</span>
               </div>
               <div className="hidden sm:flex gap-4 text-[11px] font-bold text-slate-500">
-                 <button className="hover:text-white transition-colors">Help</button>
-                 <button className="hover:text-white transition-colors">Privacy</button>
+                 <button onClick={onShowLegal} className="hover:text-white transition-colors">Legal</button>
+                 <button onClick={onShowLegal} className="hover:text-white transition-colors">Privacy</button>
               </div>
            </div>
 
@@ -490,9 +491,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
            {/* Mobile Footer Links (Visible only on small screens) */}
            <div className="mt-8 sm:hidden flex justify-center gap-6 text-[10px] font-bold text-slate-600 border-t border-slate-800/50 pt-6">
-              <button>Terms</button>
-              <button>Privacy</button>
-              <button>Help</button>
+              <button onClick={onShowLegal}>Terms</button>
+              <button onClick={onShowLegal}>Privacy</button>
+              <button onClick={onShowLegal}>Help</button>
            </div>
         </div>
       </div>

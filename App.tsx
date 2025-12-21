@@ -9,6 +9,7 @@ import Toast from './components/Toast';
 import NotificationCenter from './components/NotificationCenter';
 import MatchComparator from './components/MatchComparator';
 import FeaturesPage from './components/FeaturesPage';
+import AIDisclaimerModal from './components/AIDisclaimerModal';
 import { User, ViewState, ItemReport, ReportType, ItemCategory, AppNotification, Chat, Message } from './types';
 import { MessageCircle, Bell, Moon, Sun, User as UserIcon, Plus, SearchX, Box, Loader2 } from 'lucide-react';
 
@@ -35,6 +36,7 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   const [showFabMenu, setShowFabMenu] = useState(false);
+  const [showLegal, setShowLegal] = useState(false);
   
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -459,7 +461,12 @@ const App: React.FC = () => {
 
   // --- AUTH VIEW (Full Screen) ---
   if (!user) {
-    return <Auth onLogin={handleLogin} />;
+    return (
+      <>
+        <Auth onLogin={handleLogin} onShowLegal={() => setShowLegal(true)} />
+        <AIDisclaimerModal isOpen={showLegal} onClose={() => setShowLegal(false)} />
+      </>
+    );
   }
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
@@ -550,6 +557,9 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-off-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-300 flex flex-col">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      
+      {/* GLOBAL MODALS */}
+      <AIDisclaimerModal isOpen={showLegal} onClose={() => setShowLegal(false)} />
 
       {/* Hide standard Nav if on Features Page for immersive effect, OR keep it. 
           The design prompt requested a "Brand New Page", implies fullscreen. 
@@ -685,8 +695,7 @@ const App: React.FC = () => {
                  <span>&copy; 2025 RETRIVA</span>
                  <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700"></div>
                  <div className="flex gap-3">
-                    <a href="#" className="hover:text-indigo-500 transition-colors">Privacy</a>
-                    <a href="#" className="hover:text-indigo-500 transition-colors">Terms</a>
+                    <button onClick={() => setShowLegal(true)} className="hover:text-indigo-500 transition-colors">Privacy & Terms</button>
                  </div>
               </div>
               <div className="flex items-center gap-2">

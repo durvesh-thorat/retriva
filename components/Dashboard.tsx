@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
 import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu } from 'lucide-react';
@@ -396,7 +395,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
 
                               {/* Matches Stack (Right) */}
                               <div className="flex-1 flex gap-4 overflow-x-auto pb-4 xl:pb-0 items-center pl-2">
-                                  {matchedItems.map(match => (
+                                  {(matchedItems as ItemReport[]).map(match => (
                                      <div 
                                        key={match.id}
                                        onClick={() => onCompare(sourceItem, match)}
