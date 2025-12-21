@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Chat, User, Message } from '../types';
 import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin } from 'lucide-react';
@@ -26,7 +25,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const selectedChat = chats.find(c => c.id === activeChatId);
   const isGlobal = selectedChat?.type === 'global';
