@@ -11,6 +11,11 @@ export interface ComparisonResult {
 // Helper: Sleep function for backoff
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- CIRCUIT BREAKER CONFIGURATION ---
+const BLOCK_DURATION = 6 * 60 * 60 * 1000; // 6 Hours
+const STORAGE_KEY_BLOCK = 'retriva_circuit_breaker_until';
+const STORAGE_KEY_HASH = 'retriva_api_key_hash';
+
 // Helper to safely get the API Key with priority for VITE_ prefix
 const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
   let key: string | undefined = undefined;
@@ -38,6 +43,69 @@ const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
   return key;
 };
 
+// --- CIRCUIT BREAKER LOGIC ---
+
+const getApiKeyHash = (key: string) => {
+  if (!key) return 'unknown';
+  // Use last 6 chars as a signature to detect change without exposing key
+  return key.slice(-6);
+};
+
+const checkCircuitBreaker = (): boolean => {
+  const apiKey = getApiKey('GOOGLE');
+  if (!apiKey) return false;
+
+  const currentHash = getApiKeyHash(apiKey);
+  const storedHash = localStorage.getItem(STORAGE_KEY_HASH);
+  const blockUntil = localStorage.getItem(STORAGE_KEY_BLOCK);
+
+  // 1. Check for API Key Rotation (Admin updated env var)
+  // If the key in the code doesn't match the one we blocked, reset everything.
+  if (storedHash && storedHash !== currentHash) {
+    console.info("⚡ API Key Rotation Detected. Resetting AI Circuit Breaker.");
+    localStorage.removeItem(STORAGE_KEY_BLOCK);
+    localStorage.setItem(STORAGE_KEY_HASH, currentHash);
+    return false;
+  }
+
+  // 2. Check if Block is Active
+  if (blockUntil) {
+    const liftTime = parseInt(blockUntil, 10);
+    if (Date.now() < liftTime) {
+       console.warn(`🛡️ Circuit Breaker Active. Gemini blocked until ${new Date(liftTime).toLocaleTimeString()}. Using Groq.`);
+       return true;
+    } else {
+       // Block expired
+       localStorage.removeItem(STORAGE_KEY_BLOCK);
+       return false;
+    }
+  }
+
+  return false;
+};
+
+const tripCircuitBreaker = () => {
+    const apiKey = getApiKey('GOOGLE');
+    if (apiKey) {
+        localStorage.setItem(STORAGE_KEY_HASH, getApiKeyHash(apiKey));
+    }
+    const liftTime = Date.now() + BLOCK_DURATION;
+    localStorage.setItem(STORAGE_KEY_BLOCK, liftTime.toString());
+    
+    console.error(`⛔ Gemini Circuit Breaker Tripped. All requests switched to Groq for 6 hours.`);
+    
+    // Dispatch event for UI toast (App.tsx listens for this)
+    if (typeof window !== 'undefined') {
+        const event = new CustomEvent('retriva-toast', { 
+            detail: { 
+                message: "Gemini overloaded. Switched to Backup AI for 6h.", 
+                type: 'alert' 
+            } 
+        });
+        window.dispatchEvent(event);
+    }
+};
+
 const getAI = () => {
   const apiKey = getApiKey('GOOGLE');
   if (!apiKey) {
@@ -48,7 +116,6 @@ const getAI = () => {
 };
 
 // Model Cascade List: Fastest -> Most Capable
-// We prioritize Flash models for speed. If they 429, we instantly switch.
 const GOOGLE_CASCADE = [
   'gemini-flash-lite-latest',
   'gemini-flash-latest',
@@ -59,31 +126,19 @@ const GOOGLE_CASCADE = [
 // Fallback Model (Groq)
 const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; 
 
-/**
- * Robust JSON Cleaner: Extracts the first valid JSON object from a string.
- */
 const cleanJSON = (text: string): string => {
   if (!text) return "{}";
-  
-  // 1. Remove Markdown code blocks
   let cleaned = text.replace(/```json/g, "").replace(/```/g, "");
-  
-  // 2. Find the first '{' and the last '}'
   const firstOpen = cleaned.indexOf('{');
   const lastClose = cleaned.lastIndexOf('}');
-  
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
     cleaned = cleaned.substring(firstOpen, lastClose + 1);
   } else {
     return "{}";
   }
-
   return cleaned.trim();
 };
 
-/**
- * ADAPTER: Converts Gemini Input Format to Groq (OpenAI-compat) Format
- */
 const convertGeminiToGroq = (contents: any) => {
   const parts = contents.parts || [];
   let fullText = "";
@@ -92,22 +147,13 @@ const convertGeminiToGroq = (contents: any) => {
     if (part.text) {
       fullText += part.text + "\n";
     } else if (part.inlineData) {
-      // We add a placeholder so the model knows an image was there.
       fullText += "\n[System Note: The user uploaded an image. Please infer details from the user's text description if available, or ask for a text description as direct image processing is currently bridged to text-only fallback.]\n";
     }
   });
 
-  return [
-    {
-      role: "user",
-      content: fullText.trim()
-    }
-  ];
+  return [{ role: "user", content: fullText.trim() }];
 };
 
-/**
- * Helper to call Groq API via Fetch
- */
 const callGroqAPI = async (messages: any[], jsonMode: boolean = false) => {
   const apiKey = getApiKey('GROQ');
   if (!apiKey) throw new Error("Missing Groq API Key");
@@ -135,44 +181,9 @@ const callGroqAPI = async (messages: any[], jsonMode: boolean = false) => {
   return await response.json();
 };
 
-const generateWithCascade = async (
-  params: any
-): Promise<{ text: string }> => {
-  let lastError: any;
-  
-  // ---------------------------------------------------------
-  // 1. TRY GOOGLE GEMINI MODELS (PRIMARY)
-  // ---------------------------------------------------------
-  try {
-    const ai = getAI();
-    
-    // Iterate through models. If one fails, IMMEDIATELY switch to the next.
-    // No retries per model to avoid latency.
-    for (const modelName of GOOGLE_CASCADE) {
-        try {
-          const response = await ai.models.generateContent({
-            ...params,
-            model: modelName,
-          });
-          
-          return { text: response.text || "" };
-
-        } catch (error: any) {
-          // Log warning but don't stop execution, proceed to next model in loop
-          console.warn(`Gemini ${modelName} failed/rate-limited. Switching to next model immediately.`);
-          lastError = error;
-          continue; 
-        }
-    }
-  } catch (e: any) {
-    if (e.message === 'MISSING_GOOGLE_KEY') lastError = e;
-  }
-
-  // ---------------------------------------------------------
-  // 2. FALLBACK TO GROQ
-  // ---------------------------------------------------------
-  console.warn("All Gemini models exhausted. Switching to Groq fallback...");
-  
+// Extracted Groq Fallback Logic
+const runGroqFallback = async (params: any): Promise<{ text: string }> => {
+  console.warn("Attempting Groq fallback...");
   if (getApiKey('GROQ')) {
     try {
       const messages = convertGeminiToGroq(params.contents);
@@ -186,13 +197,59 @@ const generateWithCascade = async (
 
     } catch (groqError: any) {
       console.error("Groq Fallback failed:", groqError);
+      throw new Error("Both Gemini and Groq failed.");
     }
   } else {
     console.warn("Skipping Groq: No VITE_GROQ_API_KEY found.");
+    throw new Error("AI Service Unavailable (No Backup Key).");
+  }
+};
+
+const generateWithCascade = async (
+  params: any
+): Promise<{ text: string }> => {
+  
+  // 1. CIRCUIT BREAKER CHECK
+  if (checkCircuitBreaker()) {
+      return await runGroqFallback(params);
   }
 
-  console.error("All AI models failed.");
-  throw lastError || new Error("Model cascade exhausted.");
+  let lastError: any;
+  
+  // 2. TRY GOOGLE GEMINI MODELS (PRIMARY)
+  try {
+    const ai = getAI();
+    
+    // Iterate through models. If one fails, IMMEDIATELY switch to the next.
+    for (const modelName of GOOGLE_CASCADE) {
+        try {
+          const response = await ai.models.generateContent({
+            ...params,
+            model: modelName,
+          });
+          
+          return { text: response.text || "" };
+
+        } catch (error: any) {
+          console.warn(`Gemini ${modelName} failed/rate-limited. Switching to next model immediately.`);
+          lastError = error;
+          continue; 
+        }
+    }
+  } catch (e: any) {
+    if (e.message === 'MISSING_GOOGLE_KEY') lastError = e;
+  }
+
+  // 3. FALLBACK & TRIP BREAKER
+  // If we reached here, ALL Gemini models failed.
+  console.error("All Gemini models exhausted.");
+  
+  // Only trip the breaker if it wasn't a missing key error (which is a config issue, not a rate limit)
+  if (lastError?.message !== 'MISSING_GOOGLE_KEY') {
+      tripCircuitBreaker();
+  }
+
+  return await runGroqFallback(params);
 };
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
