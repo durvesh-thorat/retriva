@@ -73,7 +73,7 @@ To set up the project locally, follow these steps:
 
 ## 👥 The Team (4SCRIPT)
 
-This project was developed by First Year Engineering students from **Vidyavardhini's College of Engineering and Technology**:
+This project was developed by First Year Engineering students from **Pillai College of Engineering**:
 
 *   **Durvesh Thorat** - Information Technology
 *   **Kaustubh Bhoir** - Computer Engineering
