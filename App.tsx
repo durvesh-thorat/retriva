@@ -373,18 +373,22 @@ const App: React.FC = () => {
 
   const handleSendMessage = async (chatId: string, message: Message) => {
     try {
-      const chatRef = doc(db, 'chats', chatId);
-      
-      // FIX: Sanitize message object to remove 'undefined' values which Firebase arrayUnion rejects
+      // 1. Write message to Subcollection (Fix for 1MB limit)
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
       const msgData = JSON.parse(JSON.stringify({ ...message, status: 'sent' }));
+      await addDoc(messagesRef, msgData);
 
-      // Update Firestore
-      await updateDoc(chatRef, {
-        messages: arrayUnion(msgData),
-        lastMessage: message.attachment ? (message.attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : message.text,
-        lastMessageTime: message.timestamp,
-        deletedIds: [] // Un-delete if someone deleted it
-      });
+      // 2. Update Chat Metadata (Last message, etc.)
+      const chatRef = doc(db, 'chats', chatId);
+      try {
+        await updateDoc(chatRef, {
+          lastMessage: message.attachment ? (message.attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : message.text,
+          lastMessageTime: message.timestamp,
+          deletedIds: [] // Un-delete if someone deleted it
+        });
+      } catch (metaErr) {
+        console.warn("Metadata update failed (likely doc full), but message sent.", metaErr);
+      }
       
     } catch (e) {
       console.error("Send message error", e);

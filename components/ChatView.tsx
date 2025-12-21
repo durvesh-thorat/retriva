@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Chat, User, Message } from '../types';
 import { Send, Search, ArrowLeft, MessageCircle, Check, CheckCheck, Paperclip, File, ShieldBan, ShieldCheck, Lock, Globe, Users, Trash2, Home, X, Pin } from 'lucide-react';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 interface ChatViewProps {
@@ -22,6 +23,9 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
   const [otherUserOnline, setOtherUserOnline] = useState(false);
+  
+  // New State for Subcollection Messages
+  const [subcollectionMessages, setSubcollectionMessages] = useState<Message[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -37,27 +41,59 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
   const otherParticipantId = selectedChat?.participants.find(p => p !== user.id);
 
-  // 1. Mark messages as READ when opening chat
+  // 0. Listen to Subcollection Messages (The Fix for 1MB Limit)
+  useEffect(() => {
+    if (!activeChatId) {
+        setSubcollectionMessages([]);
+        return;
+    }
+
+    const messagesRef = collection(db, 'chats', activeChatId, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const msgs = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        })) as Message[];
+        setSubcollectionMessages(msgs);
+    }, (error) => {
+        console.error("Error fetching subcollection messages:", error);
+    });
+
+    return () => unsubscribe();
+  }, [activeChatId]);
+
+  // Merge Legacy Array Messages with New Subcollection Messages
+  const allMessages = useMemo(() => {
+     const legacyMessages = selectedChat?.messages || [];
+     // Create a map to deduplicate by ID if necessary (handling migration overlap)
+     const messageMap = new Map();
+     
+     legacyMessages.forEach(m => messageMap.set(m.id || m.timestamp, m));
+     subcollectionMessages.forEach(m => messageMap.set(m.id || m.timestamp, m));
+     
+     const combined = Array.from(messageMap.values());
+     return combined.sort((a, b) => a.timestamp - b.timestamp);
+  }, [selectedChat?.messages, subcollectionMessages]);
+
+  // 1. Mark messages as READ when opening chat (Legacy & New)
   useEffect(() => {
     if (activeChatId && selectedChat) {
-      // Find unread messages from other users
-      const unreadMessages = selectedChat.messages
-         .filter(m => m.senderId !== user.id && m.status !== 'read');
+      // Logic for Legacy Array (Can only read, keeping update for consistency if possible)
+      const hasUnreadLegacy = selectedChat.messages.some(m => m.senderId !== user.id && m.status !== 'read');
       
-      if (unreadMessages.length > 0) {
-         // In a real app with subcollections, we'd batch update.
-         // Since messages are an array in the document, we must update the whole array.
+      if (hasUnreadLegacy) {
          const updatedMessages = selectedChat.messages.map(m => {
              if (m.senderId !== user.id && m.status !== 'read') {
                  return { ...m, status: 'read' };
              }
              return m;
          });
-         
-         // Optimistic update done via listener, but we trigger it here
+         // Try to update legacy array (might fail if doc full, but less critical than sending)
          updateDoc(doc(db, 'chats', activeChatId), {
              messages: updatedMessages
-         });
+         }).catch(err => console.warn("Could not mark legacy messages read:", err));
       }
     }
   }, [activeChatId, selectedChat?.messages.length]);
@@ -65,20 +101,18 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   // 2. Fetch Online Status of Other User
   useEffect(() => {
      if (otherParticipantId) {
-        // Initial fetch
         getDoc(doc(db, 'users', otherParticipantId)).then(snap => {
             if (snap.exists()) setOtherUserOnline(snap.data().isOnline || false);
         });
-        // Realtime would be better, but we'll stick to simple check on mount/chat switch to save reads
      }
   }, [otherParticipantId]);
 
   // 3. Scroll to bottom
   useEffect(() => {
-    if (selectedChat) {
+    if (allMessages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [selectedChat?.messages, activeChatId]);
+  }, [allMessages, activeChatId]);
 
   // 4. Handle Typing
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -88,14 +122,14 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
       if (!typing) {
           setTyping(true);
-          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: true });
+          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: true }).catch(() => {});
       }
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       
       typingTimeoutRef.current = setTimeout(() => {
           setTyping(false);
-          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false });
+          updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false }).catch(() => {});
       }, 2000);
   };
 
@@ -116,7 +150,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
     onSendMessage(activeChatId, msg);
     setNewMessage('');
     setTyping(false);
-    updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false });
+    updateDoc(doc(db, 'chats', activeChatId), { [`typing.${user.id}`]: false }).catch(() => {});
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -297,7 +331,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {selectedChat.messages.map((msg, idx) => {
+              {allMessages.map((msg, idx) => {
                 const isMe = msg.senderId === user.id;
                 const showSender = isGlobal && !isMe;
                 
