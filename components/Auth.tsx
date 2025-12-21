@@ -18,10 +18,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<{domain: string} | null>(null);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
+    setDebugInfo(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const firebaseUser = result.user;
@@ -46,7 +48,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/unauthorized-domain') {
-        setError("Domain not authorized. Add this domain to Firebase Console > Auth > Settings > Authorized Domains.");
+        const currentDomain = window.location.hostname;
+        setDebugInfo({ domain: currentDomain });
+        setError("Unauthorized Domain");
       } else if (err.code === 'auth/popup-closed-by-user') {
         setError("Sign in cancelled.");
       } else {
@@ -61,6 +65,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setDebugInfo(null);
     
     try {
       if (isLogin) {
@@ -275,9 +280,19 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               </div>
 
               {error && (
-                 <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-start gap-3 animate-in slide-in-from-top-2">
-                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                    <p className="text-sm font-bold text-red-400 leading-snug">{error}</p>
+                 <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex flex-col items-start gap-2 animate-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3">
+                       <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                       <p className="text-sm font-bold text-red-400 leading-snug">{error}</p>
+                    </div>
+                    {debugInfo && (
+                        <div className="mt-2 pl-8 text-xs text-red-400/80 font-mono bg-black/20 p-2 rounded w-full">
+                           <p><span className="font-bold text-red-400">Current Domain:</span> {debugInfo.domain}</p>
+                           <p className="mt-1 text-[10px] opacity-70">
+                              (Mismatch? Update firebase.ts with your project keys)
+                           </p>
+                        </div>
+                    )}
                  </div>
               )}
 
@@ -414,3 +429,5 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     </div>
   );
 };
+
+export default Auth;
