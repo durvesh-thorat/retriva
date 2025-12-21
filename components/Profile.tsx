@@ -1,11 +1,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
-import { User as UserIcon, Mail, Building, Save, Camera, ArrowLeft, Loader2, Trash2, Edit3, AlertTriangle, LogOut } from 'lucide-react';
+import { User as UserIcon, Mail, Building, Save, Camera, ArrowLeft, Loader2, Trash2, Edit3, AlertTriangle, LogOut, Activity } from 'lucide-react';
 import { db, auth } from '../services/firebase';
 import { updateProfile } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { uploadImage } from '../services/cloudinary';
+import { testGroqConnection } from '../services/geminiService';
 
 interface ProfileProps {
   user: User;
@@ -39,6 +40,16 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleTestGroq = async () => {
+    const btn = document.getElementById('groq-test-btn');
+    if(btn) btn.innerText = "Testing...";
+    
+    const result = await testGroqConnection();
+    alert(result.message);
+    
+    if(btn) btn.innerText = "Test Groq API";
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -193,6 +204,21 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack, onDeleteAccou
                      >
                         <LogOut className="w-4 h-4" /> Sign Out
                      </button>
+                  </div>
+
+                  {/* Test AI Row */}
+                  <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/20">
+                      <div>
+                          <h4 className="font-bold text-blue-900 dark:text-blue-200 text-sm">AI Diagnostics</h4>
+                          <p className="text-xs text-blue-700/70 dark:text-blue-300/60 mt-0.5">Verify your Fallback API connection.</p>
+                      </div>
+                      <button 
+                        id="groq-test-btn"
+                        onClick={handleTestGroq}
+                        className="px-5 py-2.5 bg-white/50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-xs font-bold rounded-xl border border-blue-200 dark:border-blue-800 hover:bg-blue-600 hover:text-white transition-colors shadow-sm flex items-center gap-2"
+                      >
+                          <Activity className="w-4 h-4" /> Test Groq API
+                      </button>
                   </div>
 
                   {/* Delete Account Row */}

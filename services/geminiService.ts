@@ -9,6 +9,9 @@ export interface ComparisonResult {
   differences: string[];
 }
 
+// Helper: Sleep function for backoff
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Helper to safely get the API Key with priority for VITE_ prefix
 const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
   let key: string | undefined = undefined;
@@ -118,6 +121,30 @@ const convertGeminiToGroq = (contents: any) => {
   ];
 };
 
+/**
+ * DIAGNOSTIC TOOL: Test Groq Connection explicitly
+ */
+export const testGroqConnection = async (): Promise<{ success: boolean; message: string }> => {
+  const groq = getGroq();
+  if (!groq) {
+    return { success: false, message: "❌ Groq API Key (VITE_GROQ_API_KEY) is missing from environment variables." };
+  }
+
+  try {
+    const start = Date.now();
+    await groq.chat.completions.create({
+      messages: [{ role: "user", content: "ping" }],
+      model: GROQ_MODEL,
+      max_tokens: 1,
+    });
+    const latency = Date.now() - start;
+    return { success: true, message: `✅ Groq Connected! (Latency: ${latency}ms)` };
+  } catch (e: any) {
+    console.error("Groq Test Failed:", e);
+    return { success: false, message: `❌ Groq Failed: ${e.message || "Unknown Error"}` };
+  }
+};
+
 const generateWithCascade = async (
   params: any
 ): Promise<{ text: string }> => {
@@ -128,23 +155,51 @@ const generateWithCascade = async (
   // ---------------------------------------------------------
   try {
     const ai = getAI();
+    
     for (const modelName of GOOGLE_CASCADE) {
-      try {
-        const response = await ai.models.generateContent({
-          ...params,
-          model: modelName,
-        });
-        
-        // Return normalized object matching what the app expects
-        return { text: response.text || "" };
+      // Retry Logic for Rate Limits
+      let attempts = 0;
+      const MAX_ATTEMPTS = 3;
 
-      } catch (error: any) {
-        // If it's a content blocked error, don't retry, just return empty
-        if (error.message?.includes("SAFETY")) throw error;
-        
-        console.warn(`Gemini ${modelName} failed.`, error.message);
-        lastError = error;
-        continue; 
+      while (attempts < MAX_ATTEMPTS) {
+        try {
+          const response = await ai.models.generateContent({
+            ...params,
+            model: modelName,
+          });
+          
+          // Return normalized object matching what the app expects
+          return { text: response.text || "" };
+
+        } catch (error: any) {
+          // If it's a content blocked error, don't retry, just return empty
+          if (error.message?.includes("SAFETY")) throw error;
+          
+          const isRateLimit = error.message?.includes("429") || error.status === 429 || error.message?.includes("quota") || error.message?.includes("RESOURCE_EXHAUSTED");
+          
+          if (isRateLimit) {
+             attempts++;
+             console.warn(`Gemini ${modelName} Rate Limited (429). Attempt ${attempts}/${MAX_ATTEMPTS}.`);
+             
+             // If we haven't exhausted retries, wait and continue loop
+             if (attempts < MAX_ATTEMPTS) {
+                // Exponential Backoff: 2s, 4s, 8s
+                const waitTime = 2000 * Math.pow(2, attempts - 1);
+                await sleep(waitTime);
+                continue; 
+             }
+             
+             // If retries exhausted for this model, we break the inner loop 
+             // and let the outer loop try the next model in the cascade
+             lastError = error;
+             break;
+          } else {
+             // Non-rate limit error (e.g. 500, 400), try next model immediately
+             console.warn(`Gemini ${modelName} failed.`, error.message);
+             lastError = error;
+             break; 
+          }
+        }
       }
     }
   } catch (e: any) {
@@ -172,6 +227,13 @@ const generateWithCascade = async (
       });
 
       console.info("%c✅ FALLBACK SUCCESS: Groq (Llama 3.2) generated response.", "color: #00ff00; font-weight: bold; font-size: 12px;");
+
+      // DISPATCH EVENT FOR UI TOAST
+      if (typeof window !== 'undefined') {
+         window.dispatchEvent(new CustomEvent('retriva-toast', { 
+            detail: { message: 'Gemini busy. Switched to backup AI (Groq).', type: 'info' } 
+         }));
+      }
 
       const text = completion.choices[0]?.message?.content || "";
       return { text };
