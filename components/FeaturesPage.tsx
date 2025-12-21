@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, BrainCircuit, ShieldCheck, Zap, Database, Globe, Eye, Fingerprint, Lock, MessageCircle, ScanFace, Code2, Server, Cloud, Cpu, Sparkles, UserCircle2, ScanLine, FileJson, Search, AlertTriangle, CheckCircle2, Siren, Box } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BrainCircuit, ShieldCheck, Zap, Database, Eye, Fingerprint, Lock, ScanFace, Code2, Server, Cloud, Sparkles, Search, AlertTriangle, CheckCircle2, Siren, Box } from 'lucide-react';
 
 interface FeaturesPageProps {
   onBack: () => void;
@@ -410,17 +411,17 @@ const FeaturesPage: React.FC<FeaturesPageProps> = ({ onBack }) => {
              
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
-                   { name: "Teammate 1", role: "Full Stack Engineer", icon: Code2, color: "indigo" },
-                   { name: "Teammate 2", role: "AI Specialist", icon: BrainCircuit, color: "purple" },
-                   { name: "Teammate 3", role: "Product Designer", icon: Sparkles, color: "pink" },
-                   { name: "Teammate 4", role: "Backend Architect", icon: Server, color: "emerald" },
+                   { name: "Teammate 1", role: "Full Stack Engineer", icon: Code2, bgClass: "bg-indigo-500/20", hoverBgClass: "group-hover:bg-indigo-500", iconColorClass: "text-indigo-300", roleColorClass: "text-indigo-400" },
+                   { name: "Teammate 2", role: "AI Specialist", icon: BrainCircuit, bgClass: "bg-purple-500/20", hoverBgClass: "group-hover:bg-purple-500", iconColorClass: "text-purple-300", roleColorClass: "text-purple-400" },
+                   { name: "Teammate 3", role: "Product Designer", icon: Sparkles, bgClass: "bg-pink-500/20", hoverBgClass: "group-hover:bg-pink-500", iconColorClass: "text-pink-300", roleColorClass: "text-pink-400" },
+                   { name: "Teammate 4", role: "Backend Architect", icon: Server, bgClass: "bg-emerald-500/20", hoverBgClass: "group-hover:bg-emerald-500", iconColorClass: "text-emerald-300", roleColorClass: "text-emerald-400" },
                 ].map((member, i) => (
                   <div key={i} className="group relative bg-white/5 border border-white/10 rounded-3xl p-8 hover:-translate-y-2 transition-transform duration-300">
-                     <div className={`w-20 h-20 mx-auto bg-${member.color}-500/20 rounded-full mb-6 flex items-center justify-center group-hover:bg-${member.color}-500 transition-colors`}>
-                        <member.icon className={`w-10 h-10 text-${member.color}-300 group-hover:text-white`} />
+                     <div className={`w-20 h-20 mx-auto ${member.bgClass} rounded-full mb-6 flex items-center justify-center ${member.hoverBgClass} transition-colors`}>
+                        <member.icon className={`w-10 h-10 ${member.iconColorClass} group-hover:text-white`} />
                      </div>
                      <h3 className="text-xl font-bold text-white mb-1">{member.name}</h3>
-                     <p className={`text-xs font-bold text-${member.color}-400 uppercase tracking-widest`}>{member.role}</p>
+                     <p className={`text-xs font-bold ${member.roleColorClass} uppercase tracking-widest`}>{member.role}</p>
                   </div>
                 ))}
              </div>
