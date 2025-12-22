@@ -221,6 +221,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
                  <p className="text-lg text-slate-400 font-medium leading-relaxed max-w-md mx-auto lg:mx-0">
                      Reconnect with what you’ve lost using visual AI.
                  </p>
+
+                 {/* Under the Hood Button */}
+                 <div className="pt-2 flex justify-center lg:justify-start animate-in slide-in-from-bottom-4 fade-in duration-700 delay-150">
+                    <button 
+                        onClick={() => onNavigate('FEATURES')}
+                        className="group relative flex items-center gap-3 px-5 py-3 bg-[#0f172a]/50 hover:bg-[#0f172a] border border-white/10 hover:border-white/20 rounded-2xl transition-all duration-300 backdrop-blur-md"
+                    >
+                        {/* Google Glowing Gradient Background on Hover */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-[#4285F4]/20 via-[#EA4335]/20 to-[#FBBC05]/20 opacity-0 group-hover:opacity-100 blur-xl transition-all duration-500"></div>
+                        
+                        {/* Bottom Border Gradient */}
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#4285F4] via-[#EA4335] to-[#34A853] scale-x-0 group-hover:scale-x-100 transition-transform duration-500 ease-out origin-left"></div>
+
+                        <div className="relative flex items-center gap-3">
+                           <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 group-hover:border-white/20 group-hover:bg-white/10 transition-colors shadow-inner">
+                              <Cpu className="w-5 h-5 text-[#4285F4] group-hover:scale-110 transition-transform" />
+                           </div>
+                           <div className="text-left">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1 group-hover:text-slate-300">Technical Deep Dive</p>
+                              <p className="text-sm font-bold text-white leading-none">Under the Hood</p>
+                           </div>
+                           {/* Google Dots */}
+                           <div className="flex gap-1 pl-2 opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-x-2 group-hover:translate-x-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#4285F4] animate-bounce"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#EA4335] animate-bounce delay-75"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#FBBC05] animate-bounce delay-150"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#34A853] animate-bounce delay-200"></span>
+                           </div>
+                        </div>
+                    </button>
+                 </div>
              </div>
 
              {/* Right Side - Buttons */}
