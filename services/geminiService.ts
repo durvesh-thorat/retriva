@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 
 export interface ComparisonResult {
@@ -7,9 +7,6 @@ export interface ComparisonResult {
   similarities: string[];
   differences: string[];
 }
-
-// Helper: Sleep function for backoff
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- CIRCUIT BREAKER CONFIGURATION ---
 const BLOCK_DURATION = 6 * 60 * 60 * 1000; // 6 Hours
@@ -22,7 +19,6 @@ const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
   const targetKey = provider === 'GOOGLE' ? 'API_KEY' : 'GROQ_API_KEY';
   const viteKey = `VITE_${targetKey}`;
 
-  // 1. Try Vite standard (import.meta.env)
   try {
     // @ts-ignore
     if (import.meta.env) {
@@ -31,7 +27,6 @@ const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
     }
   } catch (e) {}
 
-  // 2. Try process.env (Node/Webpack/Vercel Polyfills)
   if (!key) {
     try {
       if (typeof process !== 'undefined' && process.env) {
@@ -44,10 +39,8 @@ const getApiKey = (provider: 'GOOGLE' | 'GROQ'): string | undefined => {
 };
 
 // --- CIRCUIT BREAKER LOGIC ---
-
 const getApiKeyHash = (key: string) => {
   if (!key) return 'unknown';
-  // Use last 6 chars as a signature to detect change without exposing key
   return key.slice(-6);
 };
 
@@ -59,7 +52,6 @@ const checkCircuitBreaker = (): boolean => {
   const storedHash = localStorage.getItem(STORAGE_KEY_HASH);
   const blockUntil = localStorage.getItem(STORAGE_KEY_BLOCK);
 
-  // 1. Check for API Key Rotation (Admin updated env var)
   if (storedHash && storedHash !== currentHash) {
     console.info("⚡ API Key Rotation Detected. Resetting AI Circuit Breaker.");
     localStorage.removeItem(STORAGE_KEY_BLOCK);
@@ -67,7 +59,6 @@ const checkCircuitBreaker = (): boolean => {
     return false;
   }
 
-  // 2. Check if Block is Active
   if (blockUntil) {
     const liftTime = parseInt(blockUntil, 10);
     if (Date.now() < liftTime) {
@@ -78,7 +69,6 @@ const checkCircuitBreaker = (): boolean => {
        return false;
     }
   }
-
   return false;
 };
 
@@ -112,11 +102,10 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// Model Cascade List: Improved for Gemini 3.0 Priority
+// Model Cascade List: Prioritize Reasoning Models
 const GOOGLE_CASCADE = [
-  'gemini-3-flash-preview',  // Fast, High Intelligence
-  'gemini-3-pro-preview',    // Complex Reasoning
-  'gemini-flash-latest'      // Reliable Fallback
+  'gemini-3-pro-preview',    // Best for Logic/Reasoning
+  'gemini-3-flash-preview',  // Best for Speed/Vision
 ];
 
 // Fallback Model (Groq)
@@ -141,7 +130,7 @@ const convertGeminiToGroq = (contents: any) => {
     if (part.text) {
       fullText += part.text + "\n";
     } else if (part.inlineData) {
-      fullText += "\n[System Note: The user uploaded an image. Please infer details from the user's text description if available, or ask for a text description as direct image processing is currently bridged to text-only fallback.]\n";
+      fullText += "\n[System Note: The user uploaded an image. Please infer details from the user's text description if available.]\n";
     }
   });
 
@@ -180,7 +169,6 @@ const runGroqFallback = async (params: any): Promise<{ text: string }> => {
   if (getApiKey('GROQ')) {
     try {
       const messages = convertGeminiToGroq(params.contents);
-      // Check if schema was requested to hint JSON mode to Groq
       const isJson = !!params.config?.responseSchema || params.config?.responseMimeType === 'application/json';
       
       const completion = await callGroqAPI(messages, isJson);
@@ -192,13 +180,13 @@ const runGroqFallback = async (params: any): Promise<{ text: string }> => {
       throw new Error("Both Gemini and Groq failed.");
     }
   } else {
-    console.warn("Skipping Groq: No VITE_GROQ_API_KEY found.");
     throw new Error("AI Service Unavailable (No Backup Key).");
   }
 };
 
 const generateWithCascade = async (
-  params: any
+  params: any,
+  useReasoning = false
 ): Promise<{ text: string }> => {
   
   // 1. CIRCUIT BREAKER CHECK
@@ -209,30 +197,32 @@ const generateWithCascade = async (
   let lastError: any;
   const ai = getAI();
   
-  // 2. TRY GOOGLE GEMINI MODELS (PRIMARY)
-  // Iterate through models. If one fails, switch to the next.
+  // 2. TRY GOOGLE GEMINI MODELS
   for (const modelName of GOOGLE_CASCADE) {
       try {
+        const config = { ...params.config };
+        
+        // Add Thinking Config for supported models if reasoning is requested
+        if (useReasoning && (modelName.includes('gemini-3') || modelName.includes('gemini-2.5'))) {
+           config.thinkingConfig = { thinkingBudget: 1024 }; 
+        }
+
         const response = await ai.models.generateContent({
           ...params,
           model: modelName,
+          config
         });
         
         return { text: response.text || "" };
 
       } catch (error: any) {
-        console.warn(`Gemini ${modelName} failed/rate-limited. Switching to next model.`);
+        console.warn(`Gemini ${modelName} failed. Switching...`);
         lastError = error;
-        // Check for specific error types if needed, but generally try next model
-        if (error.message && error.message.includes("API Key")) {
-             // If key is invalid, don't retry other models, it's a config error
-             throw error; 
-        }
+        if (error.message && error.message.includes("API Key")) throw error; 
         continue; 
       }
   }
 
-  // 3. FALLBACK & TRIP BREAKER
   console.error("All Gemini models exhausted.");
   if (lastError?.message !== 'MISSING_GOOGLE_KEY') {
       tripCircuitBreaker();
@@ -241,7 +231,7 @@ const generateWithCascade = async (
   return await runGroqFallback(params);
 };
 
-// --- AI FEATURE FUNCTIONS (Updated with responseSchema) ---
+// --- AI FEATURE FUNCTIONS ---
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
   faceStatus: 'NONE' | 'ACCIDENTAL' | 'PRANK';
@@ -261,6 +251,8 @@ export const instantImageCheck = async (base64Image: string): Promise<{
             1. GORE/VIOLENCE
             2. NUDITY
             3. SELFIE/FACES (Privacy risk)
+            
+            Return JSON.
           ` },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
@@ -283,11 +275,7 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
   } catch (e: any) {
-    if (e.message === "MISSING_GOOGLE_KEY") {
-      console.warn("AI Security Scan Skipped: API Key missing.");
-    } else {
-      console.error("Instant check failed", e);
-    }
+    if (e.message === "MISSING_GOOGLE_KEY") console.warn("AI Security Scan Skipped");
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
@@ -318,10 +306,7 @@ export const detectRedactionRegions = async (base64Image: string): Promise<numbe
           properties: {
             regions: {
               type: Type.ARRAY,
-              items: {
-                type: Type.ARRAY,
-                items: { type: Type.NUMBER }
-              }
+              items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
             }
           }
         }
@@ -354,7 +339,14 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
           { text: `
             Analyze this image for a Lost & Found report.
             Extract factual visual details.
-            For 'category', map to the closest valid enum value.
+            
+            Categories: ${Object.values(ItemCategory).join(', ')}
+            
+            Instructions:
+            1. Identify the main object.
+            2. Determine the most appropriate category from the list.
+            3. List visual tags (e.g., "blue", "scratched", "sticker").
+            4. Extract brand name if visible.
           `},
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
@@ -375,7 +367,7 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
           required: ['title', 'category', 'tags']
         }
       }
-    });
+    }, true); // Use Reasoning
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
   } catch (e) {
@@ -392,7 +384,6 @@ export const mergeDescriptions = async (
   visualData: any
 ): Promise<string> => {
   try {
-    // This task is text generation, no schema needed, just simple text output
     const response = await generateWithCascade({
       contents: {
         parts: [{ text: `
@@ -431,6 +422,7 @@ export const analyzeItemDescription = async (
       2. Extract Item Category (Electronics, Clothing, etc).
       3. Identify potential Policy Violations (Drugs, Weapons, Spam).
       4. Generate a concise summary and tags.
+      5. Reasoning is enabled: Think about the category carefully based on the description and images.
     ` }];
     
     base64Images.forEach(img => {
@@ -460,7 +452,7 @@ export const analyzeItemDescription = async (
           required: ['isViolating', 'title', 'description', 'category']
         }
       }
-    });
+    }, true); // Enable Reasoning for accurate categorization
 
     const text = response.text ? cleanJSON(response.text) : "{}";
     const result = JSON.parse(text);
@@ -485,15 +477,8 @@ export const analyzeItemDescription = async (
         console.error("AI Analysis Error", error);
     }
     return { 
-      isViolating: false,
-      isPrank: false, 
-      category: ItemCategory.OTHER, 
-      title: title || "Item", 
-      description, 
-      distinguishingFeatures: [],
-      summary: "", 
-      tags: [],
-      faceStatus: 'NONE'
+      isViolating: false, isPrank: false, category: ItemCategory.OTHER, 
+      title: title || "Item", description, distinguishingFeatures: [], summary: "", tags: [], faceStatus: 'NONE'
     } as any;
   }
 };
@@ -519,7 +504,6 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
   } catch (e: any) {
-    if (e.message !== "MISSING_GOOGLE_KEY") console.error(e);
     return { userStatus: 'NONE', refinedQuery: query };
   }
 };
@@ -535,19 +519,24 @@ export const findPotentialMatches = async (
         id: c.id, 
         title: c.title, 
         desc: c.description,
-        cat: c.category
+        cat: c.category,
+        loc: c.location
     }));
     
     const parts: any[] = [{ text: `
       Task: Find items in Candidates that semantically match the Source.
+      
       Source Description: ${query.description}
       Candidates: ${JSON.stringify(candidateList)}
       
       Instructions:
-      - Analyze the source text (and image if provided).
-      - Compare against candidates.
-      - Only return matches with high confidence (>70%).
-      - Return an empty list if no good matches found.
+      1. Analyze the 'Source' item. Understand what it is.
+      2. Iterate through 'Candidates'.
+      3. MATCH IF: The items are likely the same physical object (e.g. "Lost iPhone" vs "Found Black iPhone").
+      4. IGNORE IF: Categories or locations completely mismatch (e.g. "Lost Dog" vs "Found Keys").
+      5. Strictness: High. Only return matches if you are >70% confident.
+      
+      Return a JSON object with a list of matched IDs.
     ` }];
 
     if (query.imageUrls.length > 0 && query.imageUrls[0].startsWith('data:')) {
@@ -566,14 +555,18 @@ export const findPotentialMatches = async (
                 type: Type.ARRAY,
                 items: {
                    type: Type.OBJECT,
-                   properties: { id: { type: Type.STRING } },
+                   properties: { 
+                     id: { type: Type.STRING },
+                     reason: { type: Type.STRING }
+                   },
                    required: ['id']
                 }
              }
           }
         }
       }
-    });
+    }, true); // Enable Reasoning for better matching
+    
     const text = response.text ? cleanJSON(response.text) : "{}";
     const data = JSON.parse(text);
     return data.matches || [];
@@ -589,9 +582,13 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
       Compare Item A (${itemA.title}) and Item B (${itemB.title}).
       Are they the same object?
       Analyze visual similarity, description overlap, and logic (time/location).
+      
+      Reasoning required:
+      - Check if the dates make sense (Lost date <= Found date).
+      - Check if locations are plausibly close.
+      - Check visual features (color, brand, damage).
     ` }];
     
-    // Add images for both items
     const imagesToAdd = [itemA.imageUrls[0], itemB.imageUrls[0]].filter(url => url && url.startsWith('data:'));
     imagesToAdd.forEach(img => {
       const data = img.split(',')[1];
@@ -613,7 +610,7 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
           required: ['confidence', 'explanation', 'similarities', 'differences']
         }
       }
-    });
+    }, true); // Enable Reasoning
 
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
