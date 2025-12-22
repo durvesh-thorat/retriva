@@ -109,7 +109,7 @@ const GOOGLE_CASCADE = [
 ];
 
 // Fallback Model (Groq)
-const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; 
+const GROQ_MODEL = 'llama-3.3-70b-versatile'; 
 
 const cleanJSON = (text: string): string => {
   if (!text) return "{}";
