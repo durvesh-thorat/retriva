@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Search, ShieldCheck, LockKeyhole } from 'lucide-react';
@@ -27,6 +26,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
   useEffect(() => {
     const checkRedirect = async () => {
       try {
+        // This checks if we are returning from a redirect flow
         const result = await auth.getRedirectResult();
         if (result && result.user) {
           setIsGoogleLoading(true);
@@ -34,6 +34,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
           await processLogin(firebaseUser);
         }
       } catch (err: any) {
+        // IGNORE "operation-not-supported" error on initial load
+        // This happens in preview environments (StackBlitz) or if storage is disabled
+        if (err.code === 'auth/operation-not-supported-in-this-environment') {
+            console.warn("Firebase Auth Redirect not supported in this environment. Skipping check.");
+            setIsGoogleLoading(false);
+            return;
+        }
+
         console.error("Redirect Login Error:", err);
         handleAuthError(err);
         setIsGoogleLoading(false);
@@ -81,6 +89,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
       setError("Unauthorized Domain");
     } else if (err.code === 'auth/popup-closed-by-user') {
       setError("Sign in cancelled.");
+    } else if (err.code === 'auth/operation-not-supported-in-this-environment') {
+      setError("Google Sign-In is not supported in this browser environment. Please try Email/Password or use a different browser.");
     } else if (err.code === 'auth/network-request-failed') {
       setError("Network error. Check your connection or firewall.");
     } else {
@@ -108,6 +118,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal }) => {
       }
 
       // 2. Fallback to Redirect if Popup fails (Fixes COOP/Network/Mobile issues)
+      // BUT ONLY if the environment isn't known to block it (checked via error code above)
       if (err.code === 'auth/network-request-failed' || err.code === 'auth/popup-blocked') {
          console.warn("Popup failed, falling back to redirect...");
          try {
