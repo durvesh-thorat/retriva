@@ -60,7 +60,6 @@ const checkCircuitBreaker = (): boolean => {
   const blockUntil = localStorage.getItem(STORAGE_KEY_BLOCK);
 
   // 1. Check for API Key Rotation (Admin updated env var)
-  // If the key in the code doesn't match the one we blocked, reset everything.
   if (storedHash && storedHash !== currentHash) {
     console.info("⚡ API Key Rotation Detected. Resetting AI Circuit Breaker.");
     localStorage.removeItem(STORAGE_KEY_BLOCK);
@@ -75,7 +74,6 @@ const checkCircuitBreaker = (): boolean => {
        console.warn(`🛡️ Circuit Breaker Active. Gemini blocked until ${new Date(liftTime).toLocaleTimeString()}. Using Groq.`);
        return true;
     } else {
-       // Block expired
        localStorage.removeItem(STORAGE_KEY_BLOCK);
        return false;
     }
@@ -94,7 +92,6 @@ const tripCircuitBreaker = () => {
     
     console.error(`⛔ Gemini Circuit Breaker Tripped. All requests switched to Groq for 6 hours.`);
     
-    // Dispatch event for UI toast (App.tsx listens for this)
     if (typeof window !== 'undefined') {
         const event = new CustomEvent('retriva-toast', { 
             detail: { 
@@ -115,12 +112,11 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// Model Cascade List: Fastest -> Most Capable
+// Model Cascade List: Improved for Gemini 3.0 Priority
 const GOOGLE_CASCADE = [
-  'gemini-flash-lite-latest',
-  'gemini-flash-latest',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
+  'gemini-3-flash-preview',  // Fast, High Intelligence
+  'gemini-3-pro-preview',    // Complex Reasoning
+  'gemini-flash-latest'      // Reliable Fallback
 ];
 
 // Fallback Model (Groq)
@@ -133,8 +129,6 @@ const cleanJSON = (text: string): string => {
   const lastClose = cleaned.lastIndexOf('}');
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
     cleaned = cleaned.substring(firstOpen, lastClose + 1);
-  } else {
-    return "{}";
   }
   return cleaned.trim();
 };
@@ -181,17 +175,15 @@ const callGroqAPI = async (messages: any[], jsonMode: boolean = false) => {
   return await response.json();
 };
 
-// Extracted Groq Fallback Logic
 const runGroqFallback = async (params: any): Promise<{ text: string }> => {
   console.warn("Attempting Groq fallback...");
   if (getApiKey('GROQ')) {
     try {
       const messages = convertGeminiToGroq(params.contents);
-      const isJson = params.config?.responseMimeType === 'application/json';
+      // Check if schema was requested to hint JSON mode to Groq
+      const isJson = !!params.config?.responseSchema || params.config?.responseMimeType === 'application/json';
       
       const completion = await callGroqAPI(messages, isJson);
-
-      console.info("Fallback Success: Groq generated response.");
       const text = completion.choices[0]?.message?.content || "";
       return { text };
 
@@ -215,42 +207,41 @@ const generateWithCascade = async (
   }
 
   let lastError: any;
+  const ai = getAI();
   
   // 2. TRY GOOGLE GEMINI MODELS (PRIMARY)
-  try {
-    const ai = getAI();
-    
-    // Iterate through models. If one fails, IMMEDIATELY switch to the next.
-    for (const modelName of GOOGLE_CASCADE) {
-        try {
-          const response = await ai.models.generateContent({
-            ...params,
-            model: modelName,
-          });
-          
-          return { text: response.text || "" };
+  // Iterate through models. If one fails, switch to the next.
+  for (const modelName of GOOGLE_CASCADE) {
+      try {
+        const response = await ai.models.generateContent({
+          ...params,
+          model: modelName,
+        });
+        
+        return { text: response.text || "" };
 
-        } catch (error: any) {
-          console.warn(`Gemini ${modelName} failed/rate-limited. Switching to next model immediately.`);
-          lastError = error;
-          continue; 
+      } catch (error: any) {
+        console.warn(`Gemini ${modelName} failed/rate-limited. Switching to next model.`);
+        lastError = error;
+        // Check for specific error types if needed, but generally try next model
+        if (error.message && error.message.includes("API Key")) {
+             // If key is invalid, don't retry other models, it's a config error
+             throw error; 
         }
-    }
-  } catch (e: any) {
-    if (e.message === 'MISSING_GOOGLE_KEY') lastError = e;
+        continue; 
+      }
   }
 
   // 3. FALLBACK & TRIP BREAKER
-  // If we reached here, ALL Gemini models failed.
   console.error("All Gemini models exhausted.");
-  
-  // Only trip the breaker if it wasn't a missing key error (which is a config issue, not a rate limit)
   if (lastError?.message !== 'MISSING_GOOGLE_KEY') {
       tripCircuitBreaker();
   }
 
   return await runGroqFallback(params);
 };
+
+// --- AI FEATURE FUNCTIONS (Updated with responseSchema) ---
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
   faceStatus: 'NONE' | 'ACCIDENTAL' | 'PRANK';
@@ -270,20 +261,22 @@ export const instantImageCheck = async (base64Image: string): Promise<{
             1. GORE/VIOLENCE
             2. NUDITY
             3. SELFIE/FACES (Privacy risk)
-            
-            Return strictly JSON:
-            {
-              "faceStatus": "NONE" | "ACCIDENTAL" | "PRANK",
-              "violationType": "GORE" | "ANIMAL" | "HUMAN" | "NONE",
-              "isPrank": boolean,
-              "reason": "string"
-            }
           ` },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            faceStatus: { type: Type.STRING, enum: ['NONE', 'ACCIDENTAL', 'PRANK'] },
+            violationType: { type: Type.STRING, enum: ['GORE', 'ANIMAL', 'HUMAN', 'NONE'] },
+            isPrank: { type: Type.BOOLEAN },
+            reason: { type: Type.STRING }
+          },
+          required: ['faceStatus', 'violationType', 'isPrank', 'reason']
+        }
       }
     });
 
@@ -311,22 +304,28 @@ export const detectRedactionRegions = async (base64Image: string): Promise<numbe
             1. Human Faces
             2. Identity Documents (Driver Licenses, Student IDs, Passports)
             3. Credit/Debit Cards
-            4. Papers containing visible PII (names, phone numbers, addresses)
+            4. Visible PII text (phone numbers, addresses)
 
-            Return strictly JSON:
-            {
-              "regions": [
-                 [ymin, xmin, ymax, xmax], // 0 to 1000 scale integers
-                 ...
-              ]
-            }
-            If no sensitive content, return { "regions": [] }.
             Use 1000 as the scale (e.g. 500 = 50%).
           ` },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
-      config: { responseMimeType: "application/json" }
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            regions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.ARRAY,
+                items: { type: Type.NUMBER }
+              }
+            }
+          }
+        }
+      }
     });
 
     const text = response.text ? cleanJSON(response.text) : "{}";
@@ -355,22 +354,27 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
           { text: `
             Analyze this image for a Lost & Found report.
             Extract factual visual details.
-            
-            Return JSON:
-            {
-              "title": "Concise Item Name (e.g. Silver Dell XPS 13)",
-              "category": "One of: Electronics, Stationery, Clothing, Accessories, ID Cards, Books, Other",
-              "tags": ["tag1", "tag2", "tag3"],
-              "color": "Primary Color",
-              "brand": "Brand Name or Unknown",
-              "condition": "Visual condition (e.g. Scratched, New, Worn)",
-              "distinguishingFeatures": ["feature1", "feature2"]
-            }
+            For 'category', map to the closest valid enum value.
           `},
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
-      config: { responseMimeType: "application/json" }
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            category: { type: Type.STRING, enum: Object.values(ItemCategory) },
+            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            color: { type: Type.STRING },
+            brand: { type: Type.STRING },
+            condition: { type: Type.STRING },
+            distinguishingFeatures: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ['title', 'category', 'tags']
+        }
+      }
     });
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
@@ -388,6 +392,7 @@ export const mergeDescriptions = async (
   visualData: any
 ): Promise<string> => {
   try {
+    // This task is text generation, no schema needed, just simple text output
     const response = await generateWithCascade({
       contents: {
         parts: [{ text: `
@@ -399,8 +404,8 @@ export const mergeDescriptions = async (
           Instructions:
           - Combine the specific visual details (scratches, brand, color) with the user's story (where lost, when).
           - Write in natural, helpful language for a lost & found post.
-          - Keep it under 300 characters but very descriptive.
-          - Do NOT repeat "AI detected". Just describe the item.
+          - Keep it under 300 characters.
+          - Do NOT repeat "AI detected". Just describe the item naturally.
         `}]
       }
     });
@@ -416,8 +421,8 @@ export const analyzeItemDescription = async (
   title: string = ""
 ): Promise<GeminiAnalysisResult> => {
   try {
-    const promptText = `
-      Task: Enhance description and validate content.
+    const parts: any[] = [{ text: `
+      Task: Enhance description and validate content for a campus Lost & Found.
       Title: "${title}"
       Raw Input: "${description}"
       
@@ -425,22 +430,9 @@ export const analyzeItemDescription = async (
       1. Correct grammar and clarity.
       2. Extract Item Category (Electronics, Clothing, etc).
       3. Identify potential Policy Violations (Drugs, Weapons, Spam).
-      
-      Return strictly JSON matching this schema:
-      {
-        "isViolating": boolean,
-        "violationType": "GORE" | "ANIMAL" | "HUMAN" | "IRRELEVANT" | "INCONSISTENT" | "NONE",
-        "violationReason": "string",
-        "category": "string",
-        "title": "refined title",
-        "description": "enhanced description",
-        "summary": "short summary",
-        "tags": ["tag1", "tag2"],
-        "distinguishingFeatures": ["feature1", "feature2"]
-      }
-    `;
-
-    const parts: any[] = [{ text: promptText }];
+      4. Generate a concise summary and tags.
+    ` }];
+    
     base64Images.forEach(img => {
       const data = img.split(',')[1] || img;
       if (data) {
@@ -451,7 +443,22 @@ export const analyzeItemDescription = async (
     const response = await generateWithCascade({
       contents: { parts },
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isViolating: { type: Type.BOOLEAN },
+            violationType: { type: Type.STRING, enum: ['GORE', 'ANIMAL', 'HUMAN', 'IRRELEVANT', 'INCONSISTENT', 'NONE'] },
+            violationReason: { type: Type.STRING },
+            category: { type: Type.STRING, enum: Object.values(ItemCategory) },
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            distinguishingFeatures: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ['isViolating', 'title', 'description', 'category']
+        }
       }
     });
 
@@ -495,9 +502,19 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
   try {
     const response = await generateWithCascade({
       contents: {
-        parts: [{ text: `Determine intent (LOST/FOUND/NONE) and extract keywords for: "${query}". Return JSON: { "userStatus": "LOST"|"FOUND"|"NONE", "refinedQuery": "keywords" }` }]
+        parts: [{ text: `Determine intent (LOST/FOUND/NONE) and extract keywords for: "${query}".` }]
       },
-      config: { responseMimeType: "application/json" }
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+             userStatus: { type: Type.STRING, enum: ['LOST', 'FOUND', 'NONE'] },
+             refinedQuery: { type: Type.STRING }
+          },
+          required: ['userStatus', 'refinedQuery']
+        }
+      }
     });
     const text = response.text ? cleanJSON(response.text) : "{}";
     return JSON.parse(text);
@@ -513,6 +530,7 @@ export const findPotentialMatches = async (
 ): Promise<{ id: string }[]> => {
   if (candidates.length === 0) return [];
   try {
+    // Only send simplified candidate data to save tokens
     const candidateList = candidates.map(c => ({ 
         id: c.id, 
         title: c.title, 
@@ -521,10 +539,15 @@ export const findPotentialMatches = async (
     }));
     
     const parts: any[] = [{ text: `
-      Task: Find items in Candidates that match Source.
-      Source: ${query.description}
+      Task: Find items in Candidates that semantically match the Source.
+      Source Description: ${query.description}
       Candidates: ${JSON.stringify(candidateList)}
-      Return JSON: { "matches": [{ "id": "candidate_id" }] }
+      
+      Instructions:
+      - Analyze the source text (and image if provided).
+      - Compare against candidates.
+      - Only return matches with high confidence (>70%).
+      - Return an empty list if no good matches found.
     ` }];
 
     if (query.imageUrls.length > 0 && query.imageUrls[0].startsWith('data:')) {
@@ -534,7 +557,22 @@ export const findPotentialMatches = async (
 
     const response = await generateWithCascade({
       contents: { parts },
-      config: { responseMimeType: "application/json" }
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+             matches: {
+                type: Type.ARRAY,
+                items: {
+                   type: Type.OBJECT,
+                   properties: { id: { type: Type.STRING } },
+                   required: ['id']
+                }
+             }
+          }
+        }
+      }
     });
     const text = response.text ? cleanJSON(response.text) : "{}";
     const data = JSON.parse(text);
@@ -547,13 +585,13 @@ export const findPotentialMatches = async (
 
 export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promise<ComparisonResult> => {
   try {
-    const promptText = `
+    const parts: any[] = [{ text: `
       Compare Item A (${itemA.title}) and Item B (${itemB.title}).
       Are they the same object?
-      Return JSON: { "confidence": number (0-100), "explanation": "string", "similarities": ["s1"], "differences": ["d1"] }
-    `;
-
-    const parts: any[] = [{ text: promptText }];
+      Analyze visual similarity, description overlap, and logic (time/location).
+    ` }];
+    
+    // Add images for both items
     const imagesToAdd = [itemA.imageUrls[0], itemB.imageUrls[0]].filter(url => url && url.startsWith('data:'));
     imagesToAdd.forEach(img => {
       const data = img.split(',')[1];
@@ -562,7 +600,19 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
 
     const response = await generateWithCascade({
       contents: { parts },
-      config: { responseMimeType: "application/json" }
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            confidence: { type: Type.NUMBER, description: "Match percentage 0-100" },
+            explanation: { type: Type.STRING },
+            similarities: { type: Type.ARRAY, items: { type: Type.STRING } },
+            differences: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ['confidence', 'explanation', 'similarities', 'differences']
+        }
+      }
     });
 
     const text = response.text ? cleanJSON(response.text) : "{}";
