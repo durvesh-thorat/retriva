@@ -112,13 +112,35 @@ const getApiKey = (): string | undefined => {
 // --- HELPER: JSON CLEANER ---
 const cleanJSON = (text: string): string => {
   if (!text) return "{}";
-  let cleaned = text.replace(/```json/g, "").replace(/```/g, "");
-  const firstOpen = cleaned.indexOf('{');
-  const lastClose = cleaned.lastIndexOf('}');
-  if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
-    cleaned = cleaned.substring(firstOpen, lastClose + 1);
+  let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  
+  // Try to parse directly first to avoid destroying valid JSON that doesn't look standard
+  try {
+      JSON.parse(cleaned);
+      return cleaned;
+  } catch (e) {
+      // Find outermost structure
+      const firstBrace = cleaned.indexOf('{');
+      const firstBracket = cleaned.indexOf('[');
+      
+      let startIdx = -1;
+      let endIdx = -1;
+      
+      // Determine if object or array comes first
+      if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+           startIdx = firstBrace;
+           endIdx = cleaned.lastIndexOf('}');
+      } else if (firstBracket !== -1) {
+           startIdx = firstBracket;
+           endIdx = cleaned.lastIndexOf(']');
+      }
+      
+      if (startIdx !== -1 && endIdx !== -1) {
+          return cleaned.substring(startIdx, endIdx + 1);
+      }
+      
+      return "{}";
   }
-  return cleaned.trim();
 };
 
 // --- HELPER: DATE PARSER ---
@@ -137,13 +159,13 @@ class ModelManager {
   private temporaryCooldowns: Map<string, number> = new Map();
 
   public banModel(model: string, reason: string) {
-    console.warn(`⛔ Banning model ${model} for session: ${reason}`);
+    console.warn(`⛔ [RETRIVA_AI] Banning model ${model} for session: ${reason}`);
     this.sessionBans.add(model);
   }
 
   public markModelBusy(model: string) {
     const cooldownDuration = 60000;
-    console.warn(`❄️ Cooling down ${model} for ${cooldownDuration/1000}s due to Rate Limiting.`);
+    console.warn(`❄️ [RETRIVA_AI] Cooling down ${model} for ${cooldownDuration/1000}s due to Rate Limiting.`);
     this.temporaryCooldowns.set(model, Date.now() + cooldownDuration);
   }
 
@@ -194,6 +216,7 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
                 config.systemInstruction = systemInstruction;
             }
 
+            // console.log(`[RETRIVA_AI] Attempting ${model}...`);
             const response = await ai.models.generateContent({
                 ...params,
                 model,
@@ -205,6 +228,8 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
         } catch (error: any) {
             const msg = (error.message || "").toLowerCase();
             const status = error.status || 0;
+
+            console.warn(`❌ [RETRIVA_AI] Error with ${model}: ${msg}`);
 
             if (status === 404 || msg.includes('not found') || status === 400) {
                 modelManager.banModel(model, `Status ${status}: ${msg}`);
@@ -219,14 +244,12 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
                     await delay(waitTime);
                     continue;
                 } else {
-                    console.warn(`❌ ${model} exhausted retries. Failing over to next model.`);
                     modelManager.markModelBusy(model);
                     lastError = error;
                     break;
                 }
             }
-
-            console.warn(`❌ Error with ${model}: ${msg}`);
+            
             lastError = error;
             break;
         }
@@ -250,6 +273,9 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 // --- EXPORTED FEATURES (API) ---
 
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
+    console.groupCollapsed(`[RETRIVA_AI] 🧠 Smart Match Analysis for: "${sourceItem.title}"`);
+    console.log(`Source ID: ${sourceItem.id} | Type: ${sourceItem.type} | Date: ${sourceItem.date}`);
+    
     // 1. Initial Filter (Logic Funnel)
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST'; // Polarity
     
@@ -260,16 +286,26 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         r.reporterId !== sourceItem.reporterId
     );
 
-    if (candidates.length === 0) return [];
+    console.log(`Candidates after Type (${targetType}) & Status (OPEN) filter: ${candidates.length}`);
+
+    if (candidates.length === 0) {
+        console.log("No candidates available with opposite type.");
+        console.groupEnd();
+        return [];
+    }
 
     // Date Logic
     const sourceTime = parseDateVal(sourceItem.date);
-    candidates = candidates.filter(r => {
+    const dateFiltered = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
         // If I lost something on day X, I can only find it on day X or later.
         // If I found something on day Y, it must have been lost on day Y or earlier.
+        // We allow same-day matches (>=)
         return sourceItem.type === 'LOST' ? rTime >= sourceTime : sourceTime >= rTime;
     });
+
+    console.log(`Candidates after Date filter: ${dateFiltered.length} (Dropped ${candidates.length - dateFiltered.length} due to impossible timeline)`);
+    candidates = dateFiltered;
 
     // Sort by proximity to sourceTime (Closest dates first)
     candidates.sort((a, b) => {
@@ -278,11 +314,16 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         return Math.abs(aTime - sourceTime) - Math.abs(bTime - sourceTime);
     });
 
-    if (candidates.length === 0) return [];
+    if (candidates.length === 0) {
+        console.log("No candidates remain after filtering.");
+        console.groupEnd();
+        return [];
+    }
 
     // 2. AI Semantic Filtering
     try {
         const queryDescription = `Title: ${sourceItem.title}. Category: ${sourceItem.category}. Description: ${sourceItem.description}. Visuals: ${sourceItem.tags.join(', ')}`;
+        console.log("Sending top 30 candidates to Gemini for semantic matching...");
         
         // Use the existing findPotentialMatches function which calls Gemini
         const matchIds = await findPotentialMatches(
@@ -290,12 +331,20 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
             candidates
         );
         
+        console.log(`Gemini returned ${matchIds.length} match IDs.`);
         const validIds = new Set(matchIds.map(m => m.id));
-        return candidates.filter(c => validIds.has(c.id));
+        const finalMatches = candidates.filter(c => validIds.has(c.id));
+        
+        console.log("Final Matches returned to UI:", finalMatches.map(m => `${m.title} (${m.id})`));
+        console.groupEnd();
+        return finalMatches;
     } catch (e) {
         console.warn("Smart match AI failed, falling back to basic date/category filtering.", e);
         // Fallback: Strict Category Match
-        return candidates.filter(r => r.category === sourceItem.category);
+        const fallback = candidates.filter(r => r.category === sourceItem.category);
+        console.log(`Fallback returned ${fallback.length} items based on category.`);
+        console.groupEnd();
+        return fallback;
     }
 };
 
@@ -557,12 +606,16 @@ export const findPotentialMatches = async (
       config: { responseMimeType: "application/json" }
     }, "You are a semantic matching engine.");
 
+    console.log(`[RETRIVA_AI] Raw Gemini Response: ${text.substring(0, 150)}...`);
+
     const data = JSON.parse(cleanJSON(text));
-    const result = data.matches || [];
+    // Robustly handle if Gemini returns an array directly instead of { matches: [] }
+    const result = Array.isArray(data) ? data : (data.matches || []);
+    
     CacheManager.set(cacheKey, result);
     return result;
   } catch (e) {
-    console.error("Match error", e);
+    console.error("[RETRIVA_AI] Match error", e);
     return [];
   }
 };
