@@ -152,6 +152,38 @@ const parseDateVal = (dateStr: string): number => {
     return new Date(dateStr).getTime();
 };
 
+// --- HELPER: LOCAL FUZZY MATCH (FALLBACK) ---
+const performLocalFallbackMatch = (queryDescription: string, candidateList: any[]): { id: string }[] => {
+    // Normalize text: lowercase, remove punctuation, split by space
+    const normalize = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+    
+    // Extract tokens from query (Title + Desc + Category + Tags)
+    const queryTokens = new Set(normalize(queryDescription));
+    
+    const matches: { id: string }[] = [];
+
+    for (const c of candidateList) {
+        // Build candidate string
+        const cText = `${c.title} ${c.desc} ${c.cat} ${c.tags ? c.tags.join(' ') : ''}`;
+        const cTokens = normalize(cText);
+        
+        // Count overlapping tokens
+        let matchCount = 0;
+        for (const token of cTokens) {
+            if (queryTokens.has(token)) matchCount++;
+        }
+
+        // HEURISTIC:
+        // If > 2 matching significant words, or if it's a short query and 50% match.
+        // This is a loose fallback to ensure we return SOMETHING if AI fails or is too strict.
+        if (matchCount >= 2 || (queryTokens.size < 4 && matchCount >= 1)) {
+            matches.push({ id: c.id });
+        }
+    }
+    
+    return matches;
+};
+
 // --- MODEL MANAGER CLASS ---
 class ModelManager {
   private sessionBans: Set<string> = new Set();
@@ -176,8 +208,6 @@ class ModelManager {
         return !expiry || now > expiry;
     });
     if (ready.length === 0 && candidates.length > 0) {
-        // If all "ready" models are exhausted, try the ones on cooldown as a hail mary
-        // (Better to try than fail immediately)
         return candidates;
     }
     return ready;
@@ -216,7 +246,6 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
                 config.systemInstruction = systemInstruction;
             }
 
-            // console.log(`[RETRIVA_AI] Attempting ${model}...`);
             const response = await ai.models.generateContent({
                 ...params,
                 model,
@@ -255,16 +284,6 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
         }
     }
   }
-
-  if (typeof window !== 'undefined') {
-      const event = new CustomEvent('retriva-toast', { 
-          detail: { 
-              message: "AI Service is experiencing high traffic.", 
-              type: 'alert' 
-          } 
-      });
-      window.dispatchEvent(event);
-  }
   
   throw lastError || new Error("All AI models failed to respond.");
 };
@@ -275,18 +294,17 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
     // NOTE: Using console.group instead of collapsed to ensure users see the logs!
     console.group(`[RETRIVA_AI] 🧠 Analyzing: "${sourceItem.title}" (${sourceItem.type})`);
-    console.log(`Source Info: ID=${sourceItem.id}, Date=${sourceItem.date}, Reporter=${sourceItem.reporterId}`);
+    console.log(`Source Info: ID=${sourceItem.id}, Date=${sourceItem.date}`);
     
     // 1. Initial Filter (Logic Funnel)
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST'; // Polarity
     
     // Status and Polarity
-    // CRITICAL FIX: Removed `r.reporterId !== sourceItem.reporterId` to allow SELF-MATCHING for testing purposes.
-    // In a real app, you might want to restore this, but for "Lost & Found" sometimes you find your own item.
+    // SELF-MATCHING is allowed for testing
     let candidates = allReports.filter(r => 
         r.status === 'OPEN' && 
         r.type === targetType &&
-        r.id !== sourceItem.id // Don't match self
+        r.id !== sourceItem.id
     );
 
     console.log(`Step 1: Found ${candidates.length} candidates with Type '${targetType}' and Status 'OPEN'.`);
@@ -302,27 +320,20 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
     const dateFiltered = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
         
-        // BUFFER LOGIC: Allow a 24-hour buffer for date mismatches (e.g. found "late night" but reported next day)
-        // One day in ms = 86400000
-        const BUFFER_MS = 86400000;
+        // BUFFER LOGIC: Allow a 48-hour buffer for date mismatches (increased from 24h)
+        const BUFFER_MS = 86400000 * 2;
 
         if (sourceItem.type === 'LOST') {
-            // If I Lost it at time X, Found time Y must be >= X (physically).
-            // But we allow Y to be slightly before X (X - Buffer) to account for user error.
+            // Found time must be >= Lost time (physically), but allow buffer
             return rTime >= (sourceTime - BUFFER_MS);
         } else {
-            // If I Found it at time Y, Lost time X must be <= Y.
-            // But we allow X to be slightly after Y (Y + Buffer) for user error.
+            // Lost time must be <= Found time (physically), but allow buffer
             return (sourceTime + BUFFER_MS) >= rTime;
         }
     });
 
     const droppedCount = candidates.length - dateFiltered.length;
-    if (droppedCount > 0) {
-        console.log(`Step 2: Date filtered ${droppedCount} items (timeline impossible). Keeping ${dateFiltered.length}.`);
-    } else {
-        console.log(`Step 2: Date filter kept all ${dateFiltered.length} items.`);
-    }
+    console.log(`Step 2: Date filter kept ${dateFiltered.length} items (Dropped ${droppedCount}).`);
 
     candidates = dateFiltered;
 
@@ -344,25 +355,29 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         const queryDescription = `Title: ${sourceItem.title}. Category: ${sourceItem.category}. Description: ${sourceItem.description}. Visuals: ${sourceItem.tags.join(', ')}`;
         console.log("Step 3: Sending candidates to Gemini for semantic analysis...");
         
+        // Use the existing findPotentialMatches function which calls Gemini
         const matchIds = await findPotentialMatches(
             { description: queryDescription, imageUrls: sourceItem.imageUrls },
             candidates
         );
         
-        console.log(`Gemini identified ${matchIds.length} semantic matches.`);
+        console.log(`Result: ${matchIds.length} matches identified.`);
         const validIds = new Set(matchIds.map(m => m.id));
         const finalMatches = candidates.filter(c => validIds.has(c.id));
         
-        console.log("FINAL RESULT:", finalMatches.map(m => `${m.title} (${m.id})`));
+        console.log("FINAL MATCHES:", finalMatches.map(m => `${m.title} (${m.id})`));
         console.groupEnd();
         return finalMatches;
     } catch (e) {
         console.error("AI Match Failed:", e);
-        // Fallback: Strict Category Match
-        const fallback = candidates.filter(r => r.category === sourceItem.category);
-        console.log(`Fallback: Returning ${fallback.length} matches based on Category '${sourceItem.category}' only.`);
+        // Fallback: Local Keyword Match if API fails totally
+        const queryDesc = `${sourceItem.title} ${sourceItem.description} ${sourceItem.category} ${sourceItem.tags.join(' ')}`;
+        const fallbackIds = performLocalFallbackMatch(queryDesc, candidates.map(c => ({ id: c.id, title: c.title, desc: c.description, cat: c.category, tags: c.tags })));
+        
+        const fallbackMatches = candidates.filter(c => fallbackIds.some(f => f.id === c.id));
+        console.log(`System Fallback: Returning ${fallbackMatches.length} matches based on keywords.`);
         console.groupEnd();
-        return fallback;
+        return fallbackMatches;
     }
 };
 
@@ -582,16 +597,13 @@ export const findPotentialMatches = async (
 ): Promise<{ id: string }[]> => {
   if (candidates.length === 0) return [];
   
-  // Create a key based on the query AND the candidate set IDs.
-  // If candidates change (new items added), the key changes, invalidating cache. Correct behavior.
   const candidateIds = candidates.map(c => c.id).sort().join(',');
-  const cacheKey = await CacheManager.generateKey({ type: 'match', query, candidateIds });
+  const cacheKey = await CacheManager.generateKey({ type: 'match_v2', query, candidateIds });
   
   const cached = CacheManager.get(cacheKey);
   if (cached) return cached as any;
 
   try {
-    // Increased to 30 to capture more candidates in one pass since Gemini Flash has large context
     const candidateList = candidates.slice(0, 30).map(c => ({ 
         id: c.id, 
         title: c.title, 
@@ -599,21 +611,29 @@ export const findPotentialMatches = async (
         cat: c.category,
         tags: c.tags 
     }));
+
+    // DEBUG: Log what we are sending
+    console.log(`[RETRIVA_AI] Sending ${candidateList.length} candidates to model:`, candidateList);
     
-    const parts: any[] = [{ text: `Perform a fuzzy semantic search.
-      Query Item: "${query.description}".
+    const parts: any[] = [{ text: `
+      Role: You are a "Lost and Found" matching engine. 
+      Goal: Find potential matches for a lost item among a list of found items (or vice versa).
       
-      Task: Return a list of IDs from the Candidates list that represent the SAME object or a HIGHLY PROBABLE match.
+      Query Item: "${query.description}"
       
-      Rules:
-      1. Be lenient with keywords. "Sony WH-1000XM4" (Specific) matches "Sony Wireless Headphones" (Generic).
-      2. Ignore minor color naming differences (e.g. "Space Grey" == "Grey").
-      3. Focus on object type and key visual identifiers.
-      4. IGNORE DATE/TIME in the description for semantic matching (handled elsewhere).
+      Candidates List: ${JSON.stringify(candidateList)}
       
-      Candidates: ${JSON.stringify(candidateList)}. 
+      INSTRUCTIONS:
+      1. Analyze the 'Query Item' and compare it with each 'Candidate'.
+      2. Return a list of Candidate IDs that are "Possible Matches".
+      3. BE LENIENT. We want high recall. If an item is the same Category (e.g. both are 'phones') and shares ANY distinct keyword (e.g. 'Samsung', 'Black', ' cracked screen'), include it.
+      4. Ignore minor discrepancies in description length or detail level.
+      5. If the Query mentions a specific brand (e.g. "Sony"), prioritize candidates with that brand, but also include generic items if they *could* be that brand.
       
-      Return JSON { "matches": [{ "id": "..." }] }. Return empty array if no likely matches.` }];
+      OUTPUT FORMAT:
+      Return strictly JSON: { "matches": [{ "id": "candidate_id_here" }, ...] }
+      If no matches found, return { "matches": [] }
+    ` }];
     
     if (query.imageUrls[0]) {
        const data = query.imageUrls[0].split(',')[1];
@@ -628,14 +648,21 @@ export const findPotentialMatches = async (
     console.log(`[RETRIVA_AI] Raw Gemini Response: ${text.substring(0, 150)}...`);
 
     const data = JSON.parse(cleanJSON(text));
-    // Robustly handle if Gemini returns an array directly instead of { matches: [] }
-    const result = Array.isArray(data) ? data : (data.matches || []);
+    let result = Array.isArray(data) ? data : (data.matches || []);
+    
+    // IF GEMINI RETURNS EMPTY, TRY LOCAL FALLBACK
+    if (result.length === 0) {
+        console.warn("[RETRIVA_AI] Gemini found 0 matches. Attempting local fallback...");
+        result = performLocalFallbackMatch(query.description, candidateList);
+    }
     
     CacheManager.set(cacheKey, result);
     return result;
   } catch (e) {
     console.error("[RETRIVA_AI] Match error", e);
-    return [];
+    // FALLBACK ON ERROR
+    const candidateList = candidates.slice(0, 30).map(c => ({ id: c.id, title: c.title, desc: c.description, cat: c.category, tags: c.tags }));
+    return performLocalFallbackMatch(query.description, candidateList);
   }
 };
 
