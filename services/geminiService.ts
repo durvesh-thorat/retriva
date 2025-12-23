@@ -497,24 +497,72 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
   }
 };
 
-export const mergeDescriptions = async (userContext: string, visualData: any): Promise<string> => {
-  const cacheKey = await CacheManager.generateKey({ type: 'merge', userContext, visualData });
+export const mergeDescriptions = async (userDistinguishingFeatures: string, visualData: any): Promise<string> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'merge_v2', userDistinguishingFeatures, visualData });
   const cached = CacheManager.get(cacheKey);
   if (cached) return cached as any;
 
   try {
     // --- STRATEGY: Use REASONING Model (3.0 Flash) ---
+    // Updated Prompt to treat user input as distinguishing features
     const text = await generateWithGauntlet({
       contents: {
-        parts: [{ text: `Merge visual data (${JSON.stringify(visualData)}) with user context ("${userContext}") into a concise Lost & Found item description.` }]
+        parts: [{ text: `
+          Role: Professional Copywriter for Lost & Found.
+          Task: Create a clear, searchable item description.
+          
+          Input Data:
+          1. AI Visual Scan: ${JSON.stringify(visualData)}
+          2. User's Observed Marks/Features: "${userDistinguishingFeatures}"
+          
+          Guidelines:
+          - Combine the visual facts with the user's specific observations.
+          - Highlight unique marks (scratches, stickers, engravings).
+          - Keep it concise (under 300 chars) but detailed enough to identify.
+          - Tone: Professional, helpful.
+        ` }]
       }
     }, "You are a helpful copywriter.", MODEL_ROLES.REASONING);
     
-    const result = text || userContext;
+    const result = text || userDistinguishingFeatures;
     CacheManager.set(cacheKey, result);
     return result;
   } catch (e) {
-    return userContext;
+    return userDistinguishingFeatures; // Fallback
+  }
+};
+
+export const validateReportContext = async (reportData: { title: string, category: string, location: string, description: string }): Promise<{ isValid: boolean, reason: string }> => {
+  try {
+    // --- STRATEGY: Use SCANNER Model (Lite) for fast pre-submission validation ---
+    const text = await generateWithGauntlet({
+       contents: {
+         parts: [{ text: `
+           Role: Content Moderator & Logic Validator.
+           Task: Validate a Lost & Found report for consistency and realism.
+           
+           Report Data:
+           - Title: "${reportData.title}"
+           - Category: "${reportData.category}"
+           - Location: "${reportData.location}"
+           - Description: "${reportData.description}"
+           
+           Validation Rules:
+           1. Consistency: Does Title match Category? (e.g. Title "iPhone" vs Category "Clothing" is INVALID).
+           2. Realism: Is Location a plausible real-world place? (e.g. "Narnia", "Mars", "The Void" is INVALID).
+           3. Safety: Is the content appropriate? (No gore, hate speech, spam).
+           4. Coherence: Is the description gibberish?
+           
+           Output JSON: { "isValid": boolean, "reason": "Short explanation if invalid" }
+         ` }]
+       },
+       config: { responseMimeType: "application/json" }
+    }, undefined, MODEL_ROLES.SCANNER);
+
+    return JSON.parse(cleanJSON(text));
+  } catch (e) {
+    // Fail open if AI fails, let human moderation handle it later
+    return { isValid: true, reason: "" };
   }
 };
 

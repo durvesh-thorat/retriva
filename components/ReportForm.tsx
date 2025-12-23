@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ItemReport, ReportType, ItemCategory, User } from '../types';
-import { analyzeItemDescription, instantImageCheck, extractVisualDetails, mergeDescriptions, detectRedactionRegions } from '../services/geminiService';
+import { analyzeItemDescription, instantImageCheck, extractVisualDetails, mergeDescriptions, detectRedactionRegions, validateReportContext } from '../services/geminiService';
 import { uploadImage } from '../services/cloudinary';
-import { Loader2, MapPin, X, Check, Sparkles, Box, SearchX, ShieldBan, UploadCloud, AlertCircle, Wand2, Info, LayoutTemplate, Palette, Tag, EyeOff } from 'lucide-react';
+import { Loader2, MapPin, X, Check, Sparkles, Box, SearchX, ShieldBan, UploadCloud, AlertCircle, Wand2, Info, LayoutTemplate, Palette, Tag, EyeOff, Edit2, ShieldAlert } from 'lucide-react';
 
 interface ReportFormProps {
   type: ReportType;
@@ -37,10 +37,12 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
   const [time, setTime] = useState(initialData?.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
   
   const [title, setTitle] = useState(initialData?.title || '');
-  // Final merged description
+  
+  // Description State Flow
   const [description, setDescription] = useState(initialData?.description || '');
-  // User's context (separate input)
-  const [userContext, setUserContext] = useState('');
+  const [distinguishingMarks, setDistinguishingMarks] = useState(''); // Previously userContext
+  const [isDescriptionGenerated, setIsDescriptionGenerated] = useState(!!initialData?.description);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   
   const [location, setLocation] = useState(initialData?.location || '');
   const [category, setCategory] = useState<ItemCategory>(initialData?.category || ItemCategory.OTHER);
@@ -151,7 +153,6 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         const newImageIndex = imageStatuses.length; 
 
         // A. Security & Policy Check (FIRST - on original image)
-        // We reject selfies/gore BEFORE wasting time redacting.
         try {
             const security = await instantImageCheck(originalBase64);
             if (security.violationType !== 'NONE') {
@@ -240,15 +241,18 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
     }
   };
 
-  // 2. Merge Logic
-  const handleMergeDescription = async () => {
-    if (!visualInsights && !userContext) return;
+  // 2. Generate Description (Modified Logic)
+  const handleGenerateDescription = async () => {
     setIsMerging(true);
     try {
-      const merged = await mergeDescriptions(userContext, visualInsights || { note: "No visual data" });
+      // Use distinguishingMarks instead of userContext
+      const merged = await mergeDescriptions(distinguishingMarks, visualInsights || { note: "No visual data" });
       setDescription(merged);
+      setIsDescriptionGenerated(true);
+      setIsEditingDescription(false); // Default to view mode
     } catch (e) {
       console.error(e);
+      setFormError("AI generation failed. Please try again.");
     } finally {
       setIsMerging(false);
     }
@@ -258,7 +262,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
     e.preventDefault();
     setFormError(null);
 
-    // Validation
+    // 1. Basic Validation
     if (!title.trim() || !description.trim() || !location.trim() || !date || !time) {
       setFormError("Please fill in all required fields.");
       return;
@@ -272,17 +276,39 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
     setIsVerifyingFinal(true);
 
     try {
-      // For AI check, we use the preview URLs
+      // 2. Cross-Reference Validation Scan (Quick Check)
+      // This checks for "Abstract/Invalid Location" or "Inconsistent Title/Category"
+      const validationScan = await validateReportContext({
+          title, 
+          category, 
+          location, 
+          description
+      });
+
+      if (!validationScan.isValid) {
+          setAiFeedback({ 
+              severity: 'BLOCK', 
+              type: 'INCONSISTENCY', 
+              message: validationScan.reason || "Report content appears invalid or inconsistent.", 
+              actionLabel: 'Edit Report', 
+              onAction: () => setAiFeedback(null) 
+          });
+          setIsVerifyingFinal(false);
+          return;
+      }
+
+      // 3. Final Content Analysis (Deep Check for Safety)
       const finalCheck = await analyzeItemDescription(description, imageStatuses.map(s => s.url), title);
       
       if (finalCheck.isViolating || finalCheck.isPrank) {
         setAiFeedback({ severity: 'BLOCK', type: 'VIOLATION', message: finalCheck.violationReason || "Safety check failed.", actionLabel: 'Fix', onAction: () => setAiFeedback(null) });
+        setIsVerifyingFinal(false);
         return;
       }
 
       setIsSubmitting(true);
       
-      // UPLOAD TO CLOUDINARY
+      // 4. Upload to Cloudinary
       const validImages = imageStatuses.filter(s => s.status !== 'prank');
       
       const uploadPromises = validImages.map(async (img) => {
@@ -360,7 +386,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
            <div className="absolute inset-0 z-[70] bg-white/80 dark:bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center">
              <Loader2 className="w-10 h-10 text-indigo-500 animate-spin mb-4" />
              <p className="font-bold text-slate-900 dark:text-white animate-pulse">
-               {isSubmitting ? "Uploading & Submitting..." : isAutofilling ? "Extracting Details..." : isRedacting ? "Scanning for Sensitive Info..." : isMerging ? "Merging Descriptions..." : "Verifying..."}
+               {isSubmitting ? "Validating & Submitting..." : isVerifyingFinal ? "Cross-referencing Data..." : isAutofilling ? "Extracting Details..." : isRedacting ? "Scanning for Sensitive Info..." : isMerging ? "Generating Description..." : "Processing..."}
              </p>
            </div>
         )}
@@ -457,13 +483,21 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
               <div className="space-y-6 flex flex-col h-full">
                  
                  {/* 1. Media Upload */}
-                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
+                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm relative">
+                    {/* Mandatory/Optional Badge */}
+                    <div className={`absolute top-4 right-4 px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${
+                        !isLost 
+                        ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-900' 
+                        : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900'
+                    }`}>
+                        {!isLost ? '* Required' : 'Optional'}
+                    </div>
+
                     <div className="flex justify-between items-center mb-4">
                        <div className="flex items-center gap-2">
                           <UploadCloud className="w-4 h-4 text-sky-500" />
                           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Evidence</h3>
                        </div>
-                       <span className="text-[10px] font-bold text-slate-400">{imageStatuses.length}/3 Photos</span>
                     </div>
 
                     <div className="grid grid-cols-4 gap-3">
@@ -497,7 +531,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
                  </div>
 
                  {/* 2. AI & Description Center */}
-                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex-1 flex flex-col">
+                 <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex-1 flex flex-col transition-all">
                     <div className="flex items-center gap-2 mb-4">
                        <Wand2 className="w-4 h-4 text-brand-violet" />
                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Smart Description</h3>
@@ -521,46 +555,72 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
                                   <Tag className="w-3 h-3" /> {visualInsights.brand}
                                 </span>
                              )}
-                             {visualInsights.tags?.slice(0, 3).map((t: string, i: number) => (
-                                <span key={i} className="px-2 py-1 bg-white dark:bg-slate-800 rounded-lg text-[10px] font-bold text-slate-500 border border-slate-200 dark:border-slate-700">#{t}</span>
-                             ))}
                           </div>
                        </div>
                     )}
 
                     <div className="space-y-4 flex-1 flex flex-col">
-                       {/* User Context */}
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Your Context</label>
-                          <input 
-                             type="text"
-                             value={userContext}
-                             onChange={e => setUserContext(e.target.value)}
-                             placeholder="e.g. I left it on the bus seat near the back."
-                             className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium outline-none focus:border-indigo-500"
-                          />
-                       </div>
+                       
+                       {/* INPUT MODE: Show when description is NOT generated or user is editing */}
+                       {(!isDescriptionGenerated || isEditingDescription) && (
+                           <>
+                             {/* Distinguishing Features Input */}
+                             <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Distinguishing Features or Marks</label>
+                                <input 
+                                   type="text"
+                                   value={distinguishingMarks}
+                                   onChange={e => setDistinguishingMarks(e.target.value)}
+                                   placeholder="e.g. 'Has a scratch on the back', 'Batman sticker on case'"
+                                   className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium outline-none focus:border-indigo-500"
+                                />
+                             </div>
 
-                       {/* Merge Button */}
-                       <button 
-                          type="button" 
-                          onClick={handleMergeDescription}
-                          disabled={!visualInsights && !userContext}
-                          className="w-full py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:transform-none"
-                       >
-                          {isMerging ? "Merging..." : "Generate Full Description"}
-                       </button>
+                             {isEditingDescription ? (
+                                <div className="space-y-1 flex-1 flex flex-col animate-in fade-in">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Edit Description</label>
+                                  <textarea 
+                                     value={description}
+                                     onChange={e => setDescription(e.target.value)}
+                                     className="w-full flex-1 min-h-[120px] p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-medium resize-none outline-none focus:border-indigo-500"
+                                  />
+                                  <button type="button" onClick={() => setIsEditingDescription(false)} className="self-end px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-lg text-xs font-bold">Done</button>
+                                </div>
+                             ) : (
+                                /* GENERATE BUTTON - Glowing & Pulsing */
+                                <button 
+                                   type="button" 
+                                   onClick={handleGenerateDescription}
+                                   className="w-full mt-2 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 bg-[length:200%_auto] animate-gradient-slow text-white rounded-xl text-sm font-black uppercase tracking-widest shadow-[0_0_20px_rgba(99,102,241,0.5)] hover:shadow-[0_0_30px_rgba(99,102,241,0.7)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                >
+                                   {isMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 animate-pulse" />}
+                                   {isMerging ? "Generating..." : "Generate Description"}
+                                </button>
+                             )}
+                           </>
+                       )}
 
-                       {/* Final Description */}
-                       <div className="space-y-1 flex-1 flex flex-col">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Final Description (Editable)</label>
-                          <textarea 
-                             value={description}
-                             onChange={e => setDescription(e.target.value)}
-                             placeholder="The final description will appear here..."
-                             className="w-full flex-1 min-h-[100px] p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-medium resize-none outline-none focus:border-indigo-500"
-                          />
-                       </div>
+                       {/* VIEW MODE: Show only after generation and NOT editing */}
+                       {isDescriptionGenerated && !isEditingDescription && (
+                          <div className="flex-1 flex flex-col space-y-2 animate-in slide-in-from-bottom-2 fade-in">
+                             <div className="flex justify-between items-end">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Final Description</label>
+                                <button 
+                                  type="button" 
+                                  onClick={() => setIsEditingDescription(true)}
+                                  className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-slate-400 hover:text-indigo-500 rounded-lg transition-colors"
+                                  title="Edit Description"
+                                >
+                                   <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                             </div>
+                             
+                             <div className="p-4 bg-indigo-50/30 dark:bg-slate-950/50 border border-indigo-100/50 dark:border-slate-800 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed min-h-[100px] flex-1">
+                                {description}
+                             </div>
+                          </div>
+                       )}
+
                     </div>
                  </div>
 
@@ -568,12 +628,19 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
            </form>
         </div>
 
-        {/* Footer */}
+        {/* Footer - Submit Button Only shows if description is generated */}
         <div className="px-6 py-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 shrink-0">
            <button onClick={onCancel} className="px-6 py-3 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-           <button onClick={() => formRef.current?.requestSubmit()} disabled={isProcessing} className="px-8 py-3 bg-brand-violet hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-xl shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:transform-none flex items-center gap-2">
-              <Check className="w-4 h-4" /> Submit Report
-           </button>
+           
+           {isDescriptionGenerated && (
+               <button 
+                 onClick={() => formRef.current?.requestSubmit()} 
+                 disabled={isProcessing} 
+                 className="px-8 py-3 bg-brand-violet hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-xl shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:transform-none flex items-center gap-2 animate-in zoom-in-95"
+               >
+                  <Check className="w-4 h-4" /> Submit Report
+               </button>
+           )}
         </div>
 
       </div>
