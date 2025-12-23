@@ -9,14 +9,17 @@ export interface ComparisonResult {
   differences: string[];
 }
 
-// --- CONFIGURATION: THE GEMINI GAUNTLET ---
-// Strict Cascade Order requested by user: 3 -> 2.5 -> 2 -> 1.5 -> 1
+// --- CONFIGURATION: THE GEMINI GAUNTLET (VISION EDITION) ---
+// Focused strictly on Flash models that support Multimodal (Image) input.
+// Order: Newest/Strongest -> Oldest/Fastest
 const MODEL_PIPELINE = [
-  'gemini-3-flash-preview',      // Tier 1: Latest/Fastest
-  'gemini-2.5-flash-latest',     // Tier 2: Recent Stable
-  'gemini-2.0-flash-exp',        // Tier 3: Experimental 2.0
-  'gemini-1.5-flash',            // Tier 4: Standard 1.5 (User requested)
-  'gemini-1.0-pro'               // Tier 5: Legacy Fallback
+  'gemini-3-flash-preview',      // Tier 1: 3.0 Preview (Highest Capability)
+  'gemini-2.5-flash-image',      // Tier 2: 2.5 Image Specialized
+  'gemini-2.0-flash-exp',        // Tier 3: 2.0 Experimental
+  'gemini-1.5-flash-latest',     // Tier 4: 1.5 Flash Latest Alias
+  'gemini-1.5-flash-002',        // Tier 5: 1.5 Flash Stable v002
+  'gemini-1.5-flash',            // Tier 6: 1.5 Flash Standard
+  'gemini-1.5-flash-8b'          // Tier 7: 1.5 Flash 8b (Micro/Backup)
 ];
 
 const STORAGE_KEY_BANS = 'retriva_model_bans';
@@ -107,8 +110,8 @@ class ModelManager {
     localStorage.setItem(STORAGE_KEY_BANS, JSON.stringify(this.bannedModels));
   }
 
-  public banModel(model: string) {
-    console.warn(`⛔ BANNING MODEL: ${model} for 24 hours (Quota Exceeded).`);
+  public banModel(model: string, reason: string = "Quota Exceeded") {
+    console.warn(`⛔ BANNING MODEL: ${model} for 24 hours (${reason}).`);
     this.bannedModels[model] = Date.now() + BAN_DURATION;
     this.saveBans();
   }
@@ -143,7 +146,7 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
     if (typeof window !== 'undefined') {
         const event = new CustomEvent('retriva-toast', { 
             detail: { 
-                message: "All AI models exhausted for today. Please try again in 24h.", 
+                message: "All AI models exhausted/unavailable. Please try again later.", 
                 type: 'alert' 
             } 
         });
@@ -174,30 +177,37 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
         config
       });
 
+      console.log(`✅ Success with: ${model}`);
       return response.text || "";
 
     } catch (error: any) {
       const msg = (error.message || "").toLowerCase();
+      const status = error.status || 0;
       
-      // CHECK FOR QUOTA LIMITS (429)
-      // This is the "Death Note" check
-      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("resource")) {
-        modelManager.banModel(model); // PERMANENT BAN (24h)
-        continue; // Immediate switch to next model
+      // 1. QUOTA EXHAUSTED (429) -> PERMANENT BAN
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || status === 429) {
+        modelManager.banModel(model, "429 Quota Exceeded");
+        continue;
+      }
+
+      // 2. MODEL NOT FOUND (404) -> PERMANENT BAN
+      // This prevents retrying invalid model IDs or models not available in your region
+      if (msg.includes("404") || msg.includes("not found") || status === 404) {
+        modelManager.banModel(model, "404 Not Found");
+        continue;
       }
       
-      // CHECK FOR OVERLOAD (503) - Don't ban, just skip this time
-      if (msg.includes("503") || msg.includes("overloaded")) {
+      // 3. OVERLOADED (503) -> SKIP ONCE (Do not ban)
+      if (msg.includes("503") || msg.includes("overloaded") || status === 503) {
         console.warn(`⚠️ Model ${model} overloaded. Skipping temporarily.`);
         lastError = error;
         continue;
       }
 
-      // Other errors (Safety, Invalid Request)
+      // 4. INVALID ARGUMENT (400) -> SKIP ONCE
+      // Often happens if a text-only model receives an image, though our pipeline is all Vision.
       console.warn(`❌ Model ${model} error: ${msg}`);
       lastError = error;
-      // Depending on the error, we might want to fail hard or try next.
-      // For safety blocks, trying another model rarely helps, but let's be resilient:
       continue; 
     }
   }
