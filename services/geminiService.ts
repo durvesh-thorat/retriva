@@ -153,7 +153,15 @@ const parseDateVal = (dateStr: string): number => {
 };
 
 // --- HELPER: LOCAL FUZZY MATCH (FALLBACK) ---
-const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'is', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'lost', 'found', 'item', 'missing', 'looking', 'please', 'help', 'left', 'near']);
+// Enhanced Stop Words to include colors and generic adjectives to prevent false positives on "Black" or "New"
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'is', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 
+  'lost', 'found', 'item', 'missing', 'looking', 'please', 'help', 'left', 'near', 'i', 'my',
+  // Colors (Critical to prevent "Black Mouse" matching "Black Calculator")
+  'black', 'white', 'blue', 'red', 'green', 'yellow', 'purple', 'pink', 'orange', 'brown', 'grey', 'gray', 'silver', 'gold',
+  // Generics
+  'brand', 'new', 'old', 'good', 'condition', 'broken', 'used', 'small', 'large', 'big'
+]);
 
 const performLocalFallbackMatch = (queryTitle: string, queryDescription: string, queryCategory: ItemCategory, candidateList: any[]): { id: string }[] => {
     console.log("[RETRIVA_AI] 🛠️ Executing Strict Local Fallback Match...");
@@ -189,10 +197,11 @@ const performLocalFallbackMatch = (queryTitle: string, queryDescription: string,
             if (queryTokens.has(token)) totalMatchCount++;
         }
 
-        // SCORING
-        // Stricter than before.
-        // Needs at least 1 title word match (e.g. "Sony") OR 3+ description matches.
-        if (titleMatchCount >= 1 || totalMatchCount >= 3) {
+        // SCORING (STRICTER)
+        // Requires at least 2 significant title matches (e.g. "Sony" + "Headphones")
+        // OR a very strong description overlap (> 3 tokens) if titles don't match well.
+        // This prevents "Black" (1 token) from triggering a match.
+        if (titleMatchCount >= 2 || (titleMatchCount >= 1 && totalMatchCount >= 4)) {
             matches.push({ id: c.id });
         }
     }
@@ -617,7 +626,7 @@ export const findPotentialMatches = async (
   if (candidates.length === 0) return [];
   
   const candidateIds = candidates.map(c => c.id).sort().join(',');
-  const cacheKey = await CacheManager.generateKey({ type: 'match_v4', query, candidateIds });
+  const cacheKey = await CacheManager.generateKey({ type: 'match_v5', query, candidateIds });
   
   const cached = CacheManager.get(cacheKey);
   if (cached) return cached as any;
@@ -635,7 +644,7 @@ export const findPotentialMatches = async (
     console.log(`[RETRIVA_AI] Sending ${candidateList.length} candidates to model:`, candidateList);
     
     const parts: any[] = [{ text: `
-      Role: You are a strict "Lost and Found" matching engine. 
+      Role: You are a "Lost and Found" semantic matching engine. 
       Goal: Find candidates that represent the SAME PHYSICAL OBJECT as the Query Item.
       
       QUERY ITEM:
@@ -646,15 +655,15 @@ export const findPotentialMatches = async (
       CANDIDATES LIST: ${JSON.stringify(candidateList)}
       
       INSTRUCTIONS:
-      1. OBJECT IDENTITY IS KING. 
-         - A "Phone" cannot match a "Case".
-         - A "Bottle" cannot match a "Wallet".
-         - A "Bag" cannot match a "Laptop".
-      2. IGNORE shared attributes if the object type is different. (e.g. "Blue Wallet" does NOT match "Blue Bottle").
-      3. Category Check: If the Query Category is specific (e.g. Electronics), only match candidates that fit that category.
-      4. Vague Descriptions: If description is "Black item found", and query is "Black Wallet", you can match it as possible.
-      5. BRAND NAMES: Strong indicator. "Sony" matches "Sony", but verify object type (Headphones vs Camera).
-      6. PRIORITIZE RECALL, but do not hallucinate matches across disparate object types.
+      1. STRICT OBJECT TYPE CHECK: 
+         - A "Mouse" is NOT a "Calculator". 
+         - A "Phone" is NOT a "Case".
+         - A "Bottle" is NOT a "Wallet".
+         - If the base object type is different, DO NOT MATCH, even if they share attributes like "Black", "Electronics", or "Plastic".
+      2. IGNORE SHARED GENERIC ATTRIBUTES: The fact that both items are "Black" or "New" is irrelevant if they are different objects.
+      3. CATEGORY CONSISTENCY: If Query is "Electronics" and Candidate is "Electronics", you MUST still verify the object type.
+      4. BRAND NAMES: "Sony Headphones" vs "Sony Camera" -> NO MATCH.
+      5. VAGUE QUERIES: If query is "Black Item" (vague), then you can be more lenient. But if query is specific ("Mouse"), be strict.
       
       OUTPUT FORMAT:
       Return strictly JSON: { "matches": [{ "id": "candidate_id_here" }, ...] }
