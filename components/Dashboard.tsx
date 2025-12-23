@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
 import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar } from 'lucide-react';
 import ReportDetails from './ReportDetails';
-import { parseSearchQuery, findPotentialMatches } from '../services/geminiService';
+import { parseSearchQuery, findSmartMatches } from '../services/geminiService';
 
 interface DashboardProps {
   user: User;
@@ -125,22 +125,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
     try {
       // Sequential scan to manage API limits
       for (const myItem of myOpenReports) {
-        // Look for opposite type (Lost -> Found, Found -> Lost)
-        const targetType = myItem.type === ReportType.LOST ? ReportType.FOUND : ReportType.LOST;
-        const candidates = reports.filter(r => r.type === targetType && r.status === 'OPEN' && r.reporterId !== user.id);
-        
-        if (candidates.length > 0) {
-           const query = `Title: ${myItem.title}. Desc: ${myItem.description}. Loc: ${myItem.location}`;
-           const results = await findPotentialMatches({ description: query, imageUrls: myItem.imageUrls }, candidates);
-           
-           if (results.length > 0) {
-               const matchIds = results.map(r => r.id);
-               newMatches[myItem.id] = candidates.filter(c => matchIds.includes(c.id));
-           }
+         // USE NEW SMART MATCH FUNCTION
+         const results = await findSmartMatches(myItem, reports);
+         
+         if (results.length > 0) {
+             newMatches[myItem.id] = results;
+         }
 
-           // Add delay to prevent rate limiting (especially for Groq)
-           await new Promise(resolve => setTimeout(resolve, 1500));
-        }
+         // Tiny delay to breathe
+         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
       setMatches(newMatches);

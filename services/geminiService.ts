@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
+import { ItemCategory, GeminiAnalysisResult, ItemReport, ReportType } from "../types";
 
 // --- TYPES ---
 export interface ComparisonResult {
@@ -40,6 +40,19 @@ const cleanJSON = (text: string): string => {
     cleaned = cleaned.substring(firstOpen, lastClose + 1);
   }
   return cleaned.trim();
+};
+
+// --- HELPER: DATE PARSER ---
+const parseDateVal = (dateStr: string): number => {
+    if (!dateStr) return 0;
+    // Handle DD/MM/YYYY format standard in this app
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+        // Note: Month is 0-indexed in JS Date
+        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+    }
+    // Fallback for YYYY-MM-DD or other formats
+    return new Date(dateStr).getTime();
 };
 
 // --- MODEL MANAGER CLASS ---
@@ -182,6 +195,85 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 
 
 // --- EXPORTED FEATURES (API) ---
+
+/**
+ * HIGH EFFICIENCY MATCHING ENGINE
+ * Filters candidates based on strict logic before sending to AI.
+ * 
+ * Logic:
+ * 1. Status: Must be OPEN
+ * 2. Polarity: LOST vs FOUND
+ * 3. Date: Found Date >= Lost Date
+ * 4. Category: Strict match
+ * 5. Tags: At least one tag overlap
+ */
+export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
+    // 1. Initial Filter: Status, Type (Polarity), and Exclude Self
+    const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
+    
+    let candidates = allReports.filter(r => 
+        r.status === 'OPEN' && 
+        r.type === targetType && 
+        r.reporterId !== sourceItem.reporterId
+    );
+
+    if (candidates.length === 0) return [];
+
+    // 2. Strict Category Match
+    candidates = candidates.filter(r => r.category === sourceItem.category);
+
+    if (candidates.length === 0) return [];
+
+    // 3. Date Logic
+    // Logic: An item cannot be found BEFORE it was lost.
+    // IF Source is LOST: Candidate (Found) Date must be >= Source (Lost) Date
+    // IF Source is FOUND: Source (Found) Date must be >= Candidate (Lost) Date
+    const sourceTime = parseDateVal(sourceItem.date);
+    
+    candidates = candidates.filter(r => {
+        const rTime = parseDateVal(r.date);
+        // Allow for same-day matches
+        if (sourceItem.type === 'LOST') {
+            return rTime >= sourceTime;
+        } else {
+            return sourceTime >= rTime;
+        }
+    });
+
+    if (candidates.length === 0) return [];
+
+    // 4. Tag Overlap (At least one tag must match)
+    // Normalize source tags for case-insensitive comparison
+    const sourceTags = new Set(sourceItem.tags.map(t => t.toLowerCase().trim()));
+    
+    candidates = candidates.filter(r => {
+        // If either has no tags, we can't enforce overlap strictly? 
+        // User rule: "A and B must've atleast one tag same"
+        // If a report has 0 tags, it can never match.
+        if (sourceItem.tags.length === 0 || r.tags.length === 0) return false;
+        
+        return r.tags.some(t => sourceTags.has(t.toLowerCase().trim()));
+    });
+
+    // If no candidates left after strict logic, return early (Saves API call & Time)
+    if (candidates.length === 0) return [];
+
+    console.log(`🔍 Smart Match: Filtered down to ${candidates.length} logical candidates from ${allReports.length}. Sending to AI...`);
+
+    // 5. AI Semantic Search on remaining filtered candidates
+    // Construct text query for the AI
+    const queryDesc = `Title: ${sourceItem.title}. Desc: ${sourceItem.description}. Loc: ${sourceItem.location}.`;
+    
+    // Call the AI matching function with the reduced list
+    const matches = await findPotentialMatches(
+        { description: queryDesc, imageUrls: sourceItem.imageUrls }, 
+        candidates
+    );
+
+    // Map back the ID results to full objects
+    const matchedReports = candidates.filter(c => matches.some(m => m.id === c.id));
+    return matchedReports;
+};
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
   faceStatus: 'NONE' | 'ACCIDENTAL' | 'PRANK';

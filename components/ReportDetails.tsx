@@ -6,7 +6,7 @@ import {
   ArrowRight, Clock, Fingerprint, MessageCircle, ChevronLeft, ChevronRight, 
   Box, Maximize2, FileText, ScanSearch, ArrowLeftRight, ExternalLink, AlertCircle
 } from 'lucide-react';
-import { findPotentialMatches } from '../services/geminiService';
+import { findSmartMatches } from '../services/geminiService';
 
 interface ReportDetailsProps {
   report: ItemReport;
@@ -55,22 +55,9 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
     setIsScanning(true);
     setScanResults(null);
     try {
-        // Find opposite type candidates that are OPEN and not mine
-        const targetType = report.type === ReportType.LOST ? ReportType.FOUND : ReportType.LOST;
-        const candidates = allReports.filter(r => r.type === targetType && r.status === 'OPEN' && r.reporterId !== currentUser.id);
-
-        if (candidates.length === 0) {
-            setScanResults([]);
-            setIsScanning(false);
-            return;
-        }
-
-        const queryDesc = `Title: ${report.title}. Desc: ${report.description}. Loc: ${report.location}. Tags: ${report.tags.join(', ')}`;
-        const results = await findPotentialMatches({ description: queryDesc, imageUrls: report.imageUrls }, candidates);
-        
-        const matchedReports = candidates.filter(c => results.some(r => r.id === c.id));
-        setScanResults(matchedReports);
-
+        // USE SMART MATCH LOGIC
+        const results = await findSmartMatches(report, allReports);
+        setScanResults(results);
     } catch (e) {
         console.error(e);
         setScanResults([]);
