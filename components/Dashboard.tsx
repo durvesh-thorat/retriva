@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target } from 'lucide-react';
 import ReportDetails from './ReportDetails';
 import { parseSearchQuery, findSmartMatches } from '../services/geminiService';
 
@@ -87,63 +87,210 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onClick }) => {
   );
 };
 
+// --- NEW COMPONENT: RECOVERY CONSOLE ---
+const RecoveryConsole = ({ user, reports, onCompare }: { user: User, reports: ItemReport[], onCompare: any }) => {
+  const myOpenReports = useMemo(() => reports.filter(r => r.reporterId === user.id && r.status === 'OPEN' && r.type === ReportType.LOST), [reports, user.id]);
+  const [selectedItem, setSelectedItem] = useState<ItemReport | null>(null);
+  
+  // States: idle, scanning, results, error
+  const [scanState, setScanState] = useState<'idle' | 'scanning' | 'complete'>('idle');
+  const [matches, setMatches] = useState<{ report: ItemReport, confidence: number }[]>([]);
+
+  useEffect(() => {
+    if (myOpenReports.length > 0 && !selectedItem) {
+        setSelectedItem(myOpenReports[0]);
+    }
+  }, [myOpenReports]);
+
+  // Reset scan state when selection changes
+  useEffect(() => {
+    setScanState('idle');
+    setMatches([]);
+  }, [selectedItem?.id]);
+
+  const runScan = async () => {
+    if (!selectedItem) return;
+    setScanState('scanning');
+    try {
+        const results = await findSmartMatches(selectedItem, reports);
+        setMatches(results);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setScanState('complete');
+    }
+  };
+
+  if (myOpenReports.length === 0) {
+      return (
+        <div className="rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center flex flex-col items-center justify-center h-64">
+            <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-300 dark:text-slate-600">
+                <Radar className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">System Idle</h3>
+            <p className="text-sm text-slate-500 mt-1">You have no active lost item reports to monitor.</p>
+        </div>
+      );
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-6 h-[500px] animate-fade-in">
+        
+        {/* SIDEBAR: My Active Cases */}
+        <div className="w-full lg:w-1/3 flex flex-col gap-4 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 p-6 overflow-hidden">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Target className="w-4 h-4 text-indigo-500" /> Active Cases
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                {myOpenReports.map(item => (
+                    <button
+                        key={item.id}
+                        onClick={() => setSelectedItem(item)}
+                        className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${
+                            selectedItem?.id === item.id 
+                            ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 shadow-sm' 
+                            : 'bg-slate-50 dark:bg-slate-950/50 border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-lg bg-white dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                            {item.imageUrls[0] ? <img src={item.imageUrls[0]} className="w-full h-full object-cover" /> : <Box className="w-5 h-5 m-auto text-slate-300" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-bold truncate ${selectedItem?.id === item.id ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>{item.title}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{item.date}</p>
+                        </div>
+                        {selectedItem?.id === item.id && <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>}
+                    </button>
+                ))}
+            </div>
+        </div>
+
+        {/* MAIN STAGE: Scanner */}
+        <div className="flex-1 bg-slate-900 rounded-[2rem] border border-slate-800 overflow-hidden relative flex flex-col shadow-2xl">
+            
+            {/* Background Grid */}
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+            
+            {/* Header */}
+            <div className="relative z-10 px-6 py-4 border-b border-white/5 flex justify-between items-center bg-slate-900/50 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                        <Radar className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-white leading-none">Recovery Console</h3>
+                        <p className="text-[10px] text-slate-500 font-mono mt-1">GEMINI-2.5-FLASH-PREVIEW // ONLINE</p>
+                    </div>
+                </div>
+                
+                {selectedItem && scanState !== 'scanning' && (
+                    <button 
+                        onClick={runScan}
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-all shadow-lg shadow-indigo-600/20 active:scale-95 flex items-center gap-2"
+                    >
+                        {scanState === 'complete' ? <RefreshCw className="w-3.5 h-3.5" /> : <Scan className="w-3.5 h-3.5" />}
+                        {scanState === 'complete' ? 'Re-Scan' : 'Start Scan'}
+                    </button>
+                )}
+            </div>
+
+            {/* SCANNING VISUALIZER */}
+            <div className="flex-1 relative flex flex-col items-center justify-center p-6">
+                
+                {/* IDLE STATE */}
+                {scanState === 'idle' && selectedItem && (
+                    <div className="text-center animate-in fade-in zoom-in-95">
+                        <div className="relative w-24 h-24 mx-auto mb-6">
+                            <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-ping"></div>
+                            <div className="relative w-full h-full rounded-full bg-slate-800 border-2 border-indigo-500/50 overflow-hidden flex items-center justify-center shadow-[0_0_30px_rgba(99,102,241,0.3)]">
+                                {selectedItem.imageUrls[0] ? (
+                                    <img src={selectedItem.imageUrls[0]} className="w-full h-full object-cover opacity-80" />
+                                ) : <Box className="w-8 h-8 text-indigo-400" />}
+                            </div>
+                        </div>
+                        <h2 className="text-2xl font-black text-white tracking-tight mb-2">Ready to Scan</h2>
+                        <p className="text-slate-400 text-sm max-w-xs mx-auto">
+                            Initiate AI search to cross-reference "{selectedItem.title}" against visual and semantic database entries.
+                        </p>
+                    </div>
+                )}
+
+                {/* SCANNING STATE */}
+                {scanState === 'scanning' && (
+                    <div className="flex flex-col items-center justify-center w-full h-full">
+                        {/* Radar Animation */}
+                        <div className="relative w-64 h-64 flex items-center justify-center">
+                            <div className="absolute inset-0 border border-indigo-500/30 rounded-full"></div>
+                            <div className="absolute inset-[15%] border border-indigo-500/20 rounded-full"></div>
+                            <div className="absolute inset-[30%] border border-indigo-500/10 rounded-full"></div>
+                            <div className="absolute w-full h-full bg-gradient-to-r from-transparent via-indigo-500/10 to-transparent animate-spin opacity-50" style={{ clipPath: 'polygon(50% 50%, 100% 0, 100% 50%)' }}></div>
+                            
+                            {/* Center Item */}
+                            <div className="relative z-10 w-20 h-20 rounded-full bg-slate-900 border border-indigo-500 shadow-[0_0_50px_rgba(99,102,241,0.5)] overflow-hidden">
+                                {selectedItem?.imageUrls[0] && <img src={selectedItem.imageUrls[0]} className="w-full h-full object-cover opacity-80" />}
+                            </div>
+                        </div>
+                        <div className="mt-8 space-y-2 text-center">
+                            <div className="text-indigo-400 font-mono text-xs animate-pulse">ANALYZING VECTORS...</div>
+                            <div className="text-slate-500 font-mono text-[10px]">Comparing with database entries</div>
+                        </div>
+                    </div>
+                )}
+
+                {/* RESULTS STATE */}
+                {scanState === 'complete' && (
+                    <div className="w-full h-full flex flex-col animate-in fade-in slide-in-from-bottom-4">
+                        {matches.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                                <div className="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mb-4 border border-slate-700">
+                                    <ShieldCheck className="w-8 h-8 text-emerald-500" />
+                                </div>
+                                <h3 className="text-lg font-bold text-white">Monitoring Active</h3>
+                                <p className="text-slate-400 text-sm max-w-sm mt-2 leading-relaxed">
+                                    No direct matches found right now. Our AI agent has indexed this item and will alert you if a matching item is reported.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full overflow-y-auto pr-2 custom-scrollbar max-h-full">
+                                {matches.map(({ report, confidence }) => (
+                                    <div key={report.id} className="bg-slate-800/50 border border-white/10 rounded-xl p-3 flex gap-3 hover:bg-slate-800 transition-colors group">
+                                        <div className="w-20 h-20 bg-slate-900 rounded-lg overflow-hidden shrink-0 relative">
+                                            {report.imageUrls[0] && <img src={report.imageUrls[0]} className="w-full h-full object-cover" />}
+                                            <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 backdrop-blur-sm rounded text-[8px] font-bold text-white uppercase">
+                                                {confidence}% Match
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0 flex flex-col">
+                                            <h4 className="text-sm font-bold text-white truncate">{report.title}</h4>
+                                            <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> {report.location}</p>
+                                            <div className="mt-auto pt-2">
+                                                <button 
+                                                    onClick={() => onCompare(selectedItem!, report)}
+                                                    className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors"
+                                                >
+                                                    Verify Match
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+            </div>
+        </div>
+    </div>
+  );
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onResolve, onEditReport, onDeleteReport, onCompare, onChatStart }) => {
   const [activeTab, setActiveTab] = useState<ReportType>(ReportType.LOST);
   const [viewStatus, setViewStatus] = useState<'OPEN' | 'RESOLVED'>('OPEN');
   const [searchQuery, setSearchQuery] = useState('');
   const [isProcessingSearch, setIsProcessingSearch] = useState(false);
   const [selectedReport, setSelectedReport] = useState<ItemReport | null>(null);
-  
-  // AI Match Center State - Manual Control
-  const [matches, setMatches] = useState<Record<string, ItemReport[]>>({});
-  const [isScanning, setIsScanning] = useState(false);
-  
-  const CACHE_DATA_KEY = `retriva_matches_manual_${user.id}`;
-
-  // Load matches from cache on mount (but don't scan)
-  useEffect(() => {
-    const cached = localStorage.getItem(CACHE_DATA_KEY);
-    if (cached) {
-      try {
-        setMatches(JSON.parse(cached));
-      } catch (e) {}
-    }
-  }, [user.id]);
-
-  const handleManualScan = async () => {
-    const myOpenReports = reports.filter(r => r.reporterId === user.id && r.status === 'OPEN');
-    
-    if (myOpenReports.length === 0) {
-      setMatches({});
-      localStorage.removeItem(CACHE_DATA_KEY);
-      return;
-    }
-
-    setIsScanning(true);
-    const newMatches: Record<string, ItemReport[]> = {};
-
-    try {
-      // Sequential scan to manage API limits
-      for (const myItem of myOpenReports) {
-         // USE NEW SMART MATCH FUNCTION
-         const results = await findSmartMatches(myItem, reports);
-         
-         if (results.length > 0) {
-             newMatches[myItem.id] = results;
-         }
-
-         // Tiny delay to breathe
-         await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
-      setMatches(newMatches);
-      localStorage.setItem(CACHE_DATA_KEY, JSON.stringify(newMatches));
-    } catch (e) {
-      console.error("Scan failed", e);
-    } finally {
-      setIsScanning(false);
-    }
-  };
 
   const filteredReports = useMemo(() => {
     // Filter by Type AND Status
@@ -168,9 +315,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
       setIsProcessingSearch(false);
     }
   };
-
-  const hasMatches = Object.keys(matches).length > 0;
-  const myItemsCount = reports.filter(r => r.reporterId === user.id && r.status === 'OPEN').length;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20">
@@ -287,154 +431,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
           </div>
       </section>
 
-      {/* RE-DESIGNED AI DISCOVERY HUB */}
-      <div id="ai-discovery-hub" className="animate-fade-in scroll-mt-24">
-         <div className="relative rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden p-6 sm:p-8">
-            
-            {/* Ambient Background Gradient */}
-            <div className="absolute top-0 right-0 p-32 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none"></div>
-
-            {/* Hub Header */}
-            <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
-               <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm border border-indigo-100 dark:border-indigo-500/20">
-                     <Network className="w-6 h-6" />
-                  </div>
-                  <div>
-                     <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                        AI Discovery Hub
-                        {myItemsCount > 0 && (
-                          <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 font-bold border border-slate-200 dark:border-slate-700">
-                             {myItemsCount} Active Items
-                          </span>
-                        )}
-                     </h2>
-                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
-                        Semantic matching across the entire campus network.
-                     </p>
-                  </div>
-               </div>
-               
-               <button 
-                 onClick={handleManualScan}
-                 disabled={isScanning || myItemsCount === 0}
-                 className={`group relative px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all overflow-hidden flex items-center gap-3 shadow-lg
-                   ${isScanning 
-                     ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed' 
-                     : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/30 hover:scale-[1.02] active:scale-[0.98]'
-                   }
-                 `}
-               >
-                  {isScanning ? (
-                     <>
-                       <Loader2 className="w-4 h-4 animate-spin" /> Scanning Network...
-                     </>
-                  ) : (
-                     <>
-                       <Radar className="w-4 h-4" /> Run Deep Scan
-                     </>
-                  )}
-                  {/* Sweep Effect */}
-                  {!isScanning && (
-                     <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent z-10"></div>
-                  )}
-               </button>
-            </div>
-
-            {/* Content Area */}
-            <div className="relative min-h-[160px] bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-800/50 overflow-hidden">
-               
-               {/* 1. Empty State */}
-               {!isScanning && !hasMatches && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
-                      <div className="w-16 h-16 rounded-full bg-white dark:bg-slate-900 shadow-sm flex items-center justify-center mb-4 ring-1 ring-slate-200 dark:ring-slate-800">
-                         <Layers className="w-6 h-6 text-slate-300 dark:text-slate-600" />
-                      </div>
-                      <p className="text-sm font-bold text-slate-900 dark:text-white">System Standby</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-[250px]">
-                         {myItemsCount > 0 
-                            ? "Click 'Run Deep Scan' to find matches for your active items." 
-                            : "File a report to start generating automatic matches."}
-                      </p>
-                  </div>
-               )}
-
-               {/* 2. Scanning State */}
-               {isScanning && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/90 backdrop-blur-sm z-20">
-                     <div className="relative w-20 h-20 mb-6">
-                        <div className="absolute inset-0 rounded-full border-4 border-slate-200 dark:border-slate-800"></div>
-                        <div className="absolute inset-0 rounded-full border-t-4 border-indigo-500 animate-spin"></div>
-                        <Scan className="absolute inset-0 m-auto w-8 h-8 text-indigo-500 animate-pulse" />
-                     </div>
-                     <p className="text-sm font-bold text-slate-900 dark:text-white animate-pulse">Analyzing Vector Embeddings...</p>
-                     <p className="text-xs text-slate-500 mt-1">Cross-referencing {myItemsCount} items against database</p>
-                  </div>
-               )}
-
-               {/* 3. Matches Found (Grid Layout) */}
-               {!isScanning && hasMatches && (
-                  <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                     {Object.entries(matches).map(([sourceId, matchedItems]) => {
-                        const sourceItem = reports.find(r => r.id === sourceId);
-                        if (!sourceItem) return null;
-
-                        const items = matchedItems as ItemReport[];
-
-                        return (
-                           <div key={sourceId} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col sm:flex-row h-auto sm:h-44 group hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
-                              {/* Left: Your Item */}
-                              <div className="w-full sm:w-1/3 bg-slate-100 dark:bg-slate-950 relative overflow-hidden h-32 sm:h-full shrink-0">
-                                  {sourceItem.imageUrls[0] ? (
-                                    <img src={sourceItem.imageUrls[0]} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
-                                  ) : <Box className="w-8 h-8 m-auto text-slate-300 absolute inset-0" />}
-                                  <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-3">
-                                     <p className="text-[9px] font-bold text-white/70 uppercase tracking-wider mb-0.5">My Report</p>
-                                     <p className="text-xs font-bold text-white truncate leading-tight">{sourceItem.title}</p>
-                                  </div>
-                              </div>
-
-                              {/* Right: Matches List */}
-                              <div className="flex-1 flex flex-col min-w-0">
-                                 <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                                       <Sparkles className="w-3 h-3" /> {items.length} Potential Match{items.length !== 1 ? 'es' : ''}
-                                    </span>
-                                 </div>
-                                 
-                                 <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                                    {items.map(match => (
-                                       <button 
-                                         key={match.id}
-                                         onClick={() => onCompare(sourceItem, match)}
-                                         className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left group/item"
-                                       >
-                                          <div className="w-10 h-10 rounded-md bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-700">
-                                             {match.imageUrls[0] && <img src={match.imageUrls[0]} className="w-full h-full object-cover" />}
-                                          </div>
-                                          <div className="flex-1 min-w-0">
-                                             <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate group-hover/item:text-indigo-600 dark:group-hover/item:text-indigo-400 transition-colors">
-                                                {match.title}
-                                             </p>
-                                             <p className="text-[9px] text-slate-400 truncate flex items-center gap-1">
-                                                <MapPin className="w-2.5 h-2.5" /> {match.location}
-                                             </p>
-                                          </div>
-                                          <div className="p-1.5 rounded-full bg-white dark:bg-slate-800 text-slate-300 group-hover/item:text-indigo-500 shadow-sm opacity-0 group-hover/item:opacity-100 transition-all">
-                                             <ChevronRight className="w-3 h-3" />
-                                          </div>
-                                       </button>
-                                    ))}
-                                 </div>
-                              </div>
-                           </div>
-                        );
-                     })}
-                  </div>
-               )}
-            </div>
-         </div>
-      </div>
+      {/* AI DISCOVERY HUB REPLACEMENT */}
+      <RecoveryConsole user={user} reports={reports} onCompare={onCompare} />
 
       {/* Main Content Feed */}
       <section className="space-y-6">

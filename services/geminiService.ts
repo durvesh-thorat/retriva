@@ -9,6 +9,12 @@ export interface ComparisonResult {
   differences: string[];
 }
 
+export interface MatchCandidate {
+  id: string;
+  confidence: number; // 0-100
+  reason?: string;
+}
+
 // --- CONFIGURATION ---
 
 // 1. Define specific roles for models based on user request
@@ -19,19 +25,18 @@ const MODEL_ROLES = {
   // VISION & SAFETY: Balanced model for safety checks and coordinate detection
   VISION: 'gemini-2.5-flash-preview', 
   
-  // SPEED & VOLUME: Fastest model for iterating through database candidates
-  // NOTE: Using 2.0 Lite as 2.5 Lite ID is currently unavailable/causing 404s
-  SCANNER: 'gemini-2.0-flash-lite-preview-02-05' 
+  // SPEED & VOLUME: Using Standard Flash for reliability over Lite
+  SCANNER: 'gemini-2.5-flash-preview' 
 };
 
 // Fallback pipeline (Strictly Flash models only)
 const FALLBACK_PIPELINE = [
-  'gemini-2.0-flash-lite-preview-02-05',
   'gemini-2.5-flash-preview',
+  'gemini-2.0-flash-lite-preview-02-05',
   'gemini-3-flash-preview'
 ];
 
-const CACHE_PREFIX = 'retriva_ai_cache_';
+const CACHE_PREFIX = 'retriva_ai_cache_v2_'; // Incremented version to clear old bad cache
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 Hours
 
 // --- CACHE MANAGER ---
@@ -166,17 +171,18 @@ const STOP_WORDS = new Set([
   'brand', 'new', 'old', 'good', 'condition', 'broken', 'used', 'small', 'large', 'big'
 ]);
 
-const performLocalFallbackMatch = (queryTitle: string, queryDescription: string, queryCategory: ItemCategory, candidateList: any[]): { id: string }[] => {
-    console.log("[RETRIVA_AI] 🛠️ Executing Strict Local Fallback Match (API Failed)...");
+const performLocalFallbackMatch = (queryTitle: string, queryDescription: string, queryCategory: ItemCategory, candidateList: any[]): MatchCandidate[] => {
+    console.log("[RETRIVA_AI] 🛠️ Executing Backup Local Match...");
     
     const normalize = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
     
     const queryTokens = new Set(normalize(queryTitle + " " + queryDescription));
     const titleTokens = new Set(normalize(queryTitle));
     
-    const matches: { id: string }[] = [];
+    const matches: MatchCandidate[] = [];
 
     for (const c of candidateList) {
+        // Strict Category Check for local backup
         if (queryCategory !== ItemCategory.OTHER && c.cat !== ItemCategory.OTHER && queryCategory !== c.cat) {
             continue;
         }
@@ -195,12 +201,18 @@ const performLocalFallbackMatch = (queryTitle: string, queryDescription: string,
             if (queryTokens.has(token)) totalMatchCount++;
         }
 
-        if (titleMatchCount >= 2 || (titleMatchCount >= 1 && totalMatchCount >= 4)) {
-            matches.push({ id: c.id });
+        // Scoring Logic
+        let score = 0;
+        if (titleMatchCount >= 1) score += 40;
+        if (titleMatchCount >= 2) score += 30;
+        if (totalMatchCount >= 2) score += 20;
+        
+        if (score > 0) {
+            matches.push({ id: c.id, confidence: Math.min(score, 75), reason: "Keyword overlap detected" });
         }
     }
     
-    return matches;
+    return matches.sort((a, b) => b.confidence - a.confidence).slice(0, 10);
 };
 
 // --- MODEL MANAGER CLASS ---
@@ -246,7 +258,6 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string, pre
   pipeline = [...pipeline, ...FALLBACK_PIPELINE.filter(m => m !== preferredModel && modelManager.isAvailable(m))];
   
   if (pipeline.length === 0) {
-     // If all are banned/busy, force try the preferred one anyway as last resort
      if (preferredModel) pipeline.push(preferredModel);
      else throw new Error("No available models.");
   }
@@ -260,7 +271,7 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string, pre
     while (retries <= MAX_RETRIES) {
         try {
             const config = { ...params.config };
-            delete config.thinkingConfig; // Flash models don't support thinkingConfig usually, safekeeping
+            delete config.thinkingConfig; 
             
             if (systemInstruction) {
                 config.systemInstruction = systemInstruction;
@@ -290,7 +301,6 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string, pre
                 retries++;
                 if (retries <= MAX_RETRIES) {
                     const waitTime = Math.pow(2, retries) * 1000; 
-                    console.warn(`⏳ ${model} is busy (429). Retrying in ${waitTime/1000}s...`);
                     await delay(waitTime);
                     continue;
                 } else {
@@ -312,35 +322,41 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string, pre
 
 // --- EXPORTED FEATURES (API) ---
 
-export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
-    console.group(`[RETRIVA_AI] 🧠 Analyzing: "${sourceItem.title}"`);
+/**
+ * Main Smart Matching Function
+ * 1. Filters candidates by date/type.
+ * 2. Uses AI to find matches.
+ * 3. Falls back to keyword search if AI returns nothing.
+ */
+export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<{ report: ItemReport, confidence: number }[]> => {
+    console.group(`[RETRIVA_AI] 🧠 Deep Scan for: "${sourceItem.title}"`);
     
-    // 1. Initial Filter
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
     
+    // 1. Broad Filtering (Date & Status)
+    const sourceTime = parseDateVal(sourceItem.date);
+    // Increased buffer to 60 Days to ensure we catch everything
+    const BUFFER_MS = 86400000 * 60; 
+
     let candidates = allReports.filter(r => 
         r.status === 'OPEN' && 
         r.type === targetType &&
         r.id !== sourceItem.id
     );
 
-    console.log(`Step 1: Found ${candidates.length} candidates.`);
-    
     if (candidates.length === 0) {
+        console.warn("No candidates found in database of opposite type.");
         console.groupEnd();
         return [];
     }
 
-    // Date Buffer - Relaxed from 48h to 30 Days to allow AI to see more data
-    const sourceTime = parseDateVal(sourceItem.date);
-    const BUFFER_MS = 86400000 * 30; // 30 Days
-
+    // Date Filter
     candidates = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
         return Math.abs(rTime - sourceTime) <= BUFFER_MS;
     });
 
-    console.log(`Step 2: ${candidates.length} candidates after date filtering.`);
+    console.log(`Step 1: ${candidates.length} candidates after 60-day filter.`);
 
     // Sort by proximity
     candidates.sort((a, b) => {
@@ -349,36 +365,109 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         return Math.abs(aTime - sourceTime) - Math.abs(bTime - sourceTime);
     });
 
-    if (candidates.length === 0) {
-        console.groupEnd();
-        return [];
-    }
-
     // 2. AI Semantic Filtering
+    let matchResults: MatchCandidate[] = [];
+    
     try {
-        const queryDescription = `Description: ${sourceItem.description}. Visuals: ${sourceItem.tags.join(', ')}`;
-        console.log("Step 3: Sending candidates to Gemini for semantic analysis...");
+        const queryDescription = `Title: ${sourceItem.title}. Desc: ${sourceItem.description}. Visual Tags: ${sourceItem.tags.join(', ')}`;
         
-        // --- STRATEGY: Use SCANNER Model (Lite) ---
-        const matchIds = await findPotentialMatches(
+        // --- STRATEGY: Use STANDARD Flash Model (2.5) ---
+        matchResults = await findPotentialMatches(
             { title: sourceItem.title, description: queryDescription, imageUrls: sourceItem.imageUrls, category: sourceItem.category },
             candidates
         );
         
-        console.log(`Result: ${matchIds.length} matches identified.`);
-        const validIds = new Set(matchIds.map(m => m.id));
-        const finalMatches = candidates.filter(c => validIds.has(c.id));
-        
-        console.groupEnd();
-        return finalMatches;
     } catch (e) {
-        console.error("AI Match Failed:", e);
-        const queryDesc = `${sourceItem.description} ${sourceItem.tags.join(' ')}`;
-        const candidateList = candidates.map(c => ({ id: c.id, title: c.title, desc: c.description, cat: c.category, tags: c.tags }));
-        const fallbackIds = performLocalFallbackMatch(sourceItem.title, queryDesc, sourceItem.category, candidateList);
-        console.groupEnd();
-        return candidates.filter(c => fallbackIds.some(f => f.id === c.id));
+        console.error("AI Match Failed, skipping to fallback.", e);
     }
+
+    // 3. Robust Fallback (If AI returns 0 matches)
+    if (matchResults.length === 0) {
+        console.log("Step 3: AI found 0 matches. Running Keyword Fallback...");
+        const candidateList = candidates.map(c => ({ id: c.id, title: c.title, desc: c.description, cat: c.category, tags: c.tags }));
+        matchResults = performLocalFallbackMatch(sourceItem.title, sourceItem.description, sourceItem.category, candidateList);
+    }
+
+    console.log(`Final Result: ${matchResults.length} matches identified.`);
+    
+    // Map back to full objects
+    const results = matchResults.map(m => {
+        const report = candidates.find(c => c.id === m.id);
+        return report ? { report, confidence: m.confidence } : null;
+    }).filter(Boolean) as { report: ItemReport, confidence: number }[];
+
+    console.groupEnd();
+    return results;
+};
+
+export const findPotentialMatches = async (
+  query: { title: string; description: string; imageUrls: string[]; category: ItemCategory },
+  candidates: ItemReport[]
+): Promise<MatchCandidate[]> => {
+  if (candidates.length === 0) return [];
+  
+  // Batching: Limit to 50 candidates per AI call to ensure high quality attention
+  const candidateList = candidates.slice(0, 50).map(c => ({ 
+        id: c.id, 
+        title: c.title, 
+        desc: c.description, 
+        cat: c.category, 
+        tags: c.tags,
+        date: c.date
+    }));
+
+  const cacheKey = await CacheManager.generateKey({ type: 'match_v7', query, candidateIds: candidateList.map(c => c.id).sort().join(',') });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
+  try {
+    const parts: any[] = [{ text: `
+      Role: Senior Detective AI.
+      Task: Match a LOST item with a list of FOUND candidates.
+      
+      MISSING ITEM:
+      - Title: "${query.title}"
+      - Category: "${query.category}"
+      - Details: "${query.description}"
+      
+      CANDIDATES DATABASE:
+      ${JSON.stringify(candidateList)}
+      
+      INSTRUCTIONS:
+      1. Analyze each candidate for semantic similarity.
+      2. Ignore minor date discrepancies (items found days later).
+      3. Focus on unique features (Brand, Color, Type).
+      4. Assign a CONFIDENCE SCORE (0-100) for each match. 0 = No match.
+      
+      OUTPUT JSON Format:
+      { "matches": [ { "id": "candidate_id", "confidence": 85, "reason": "Same brand and color" } ] }
+      
+      Return ONLY valid matches with confidence > 40.
+    ` }];
+    
+    // We send the query image if available to help the model "see" what we are looking for
+    if (query.imageUrls[0]) {
+       const data = query.imageUrls[0].split(',')[1];
+       if (data) parts.push({ inlineData: { mimeType: "image/jpeg", data } });
+    }
+
+    // --- STRATEGY: Use SCANNER Model (2.5 Flash) ---
+    const text = await generateWithGauntlet({
+      contents: { parts },
+      config: { responseMimeType: "application/json" }
+    }, "You are a precise matching engine.", MODEL_ROLES.SCANNER);
+
+    console.log(`[RETRIVA_AI] Raw Gemini Response: ${text.substring(0, 100)}...`);
+
+    const data = JSON.parse(cleanJSON(text));
+    let result = Array.isArray(data) ? data : (data.matches || []);
+    
+    CacheManager.set(cacheKey, result);
+    return result;
+  } catch (e) {
+    console.error("[RETRIVA_AI] Match error", e);
+    throw e; // Throw to trigger fallback in parent
+  }
 };
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
@@ -535,7 +624,7 @@ export const mergeDescriptions = async (userDistinguishingFeatures: string, visu
 
 export const validateReportContext = async (reportData: { title: string, category: string, location: string, description: string }): Promise<{ isValid: boolean, reason: string }> => {
   try {
-    // --- STRATEGY: Use SCANNER Model (Lite) for fast pre-submission validation ---
+    // --- STRATEGY: Use SCANNER Model (2.5 Flash) for fast pre-submission validation ---
     const text = await generateWithGauntlet({
        contents: {
          parts: [{ text: `
@@ -562,7 +651,6 @@ export const validateReportContext = async (reportData: { title: string, categor
 
     return JSON.parse(cleanJSON(text));
   } catch (e) {
-    // Fail open if AI fails, let human moderation handle it later
     return { isValid: true, reason: "" };
   }
 };
@@ -621,7 +709,7 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
   if (cached) return cached as any;
 
   try {
-    // --- STRATEGY: Use SCANNER Model (Lite is smart enough for search intent) ---
+    // --- STRATEGY: Use SCANNER Model ---
     const text = await generateWithGauntlet({
       contents: { parts: [{ text: `Analyze query: "${query}". Return JSON: userStatus (LOST/FOUND/NONE), refinedQuery (keywords).` }] }
     }, "You are a search intent analyzer.", MODEL_ROLES.SCANNER);
@@ -630,72 +718,6 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
     return result;
   } catch (e) {
     return { userStatus: 'NONE', refinedQuery: query };
-  }
-};
-
-export const findPotentialMatches = async (
-  query: { title: string; description: string; imageUrls: string[]; category: ItemCategory },
-  candidates: ItemReport[]
-): Promise<{ id: string }[]> => {
-  if (candidates.length === 0) return [];
-  
-  // NOTE: Candidates are now batched up to 100 to allow AI scan to work effectively
-  const candidateList = candidates.slice(0, 100).map(c => ({ 
-        id: c.id, 
-        title: c.title, 
-        desc: c.description, 
-        cat: c.category, 
-        tags: c.tags 
-    }));
-
-  const cacheKey = await CacheManager.generateKey({ type: 'match_v6', query, candidateIds: candidateList.map(c => c.id).sort().join(',') });
-  
-  const cached = CacheManager.get(cacheKey);
-  if (cached) return cached as any;
-
-  try {
-    // DEBUG: Log what we are sending
-    console.log(`[RETRIVA_AI] Sending ${candidateList.length} candidates to model:`, candidateList);
-    
-    const parts: any[] = [{ text: `
-      Role: Semantic Matching Engine. 
-      Goal: Find candidates that represent the SAME PHYSICAL OBJECT.
-      QUERY: "${query.title}" (${query.category}) - ${query.description}
-      CANDIDATES: ${JSON.stringify(candidateList)}
-      
-      INSTRUCTIONS:
-      1. STRICT OBJECT TYPE CHECK: "Mouse" != "Calculator".
-      2. IGNORE GENERIC ATTRIBUTES if object type differs.
-      3. BE LENIENT ON DATES. Items found days later are still matches.
-      
-      OUTPUT: JSON { "matches": [{ "id": "..." }] }
-    ` }];
-    
-    if (query.imageUrls[0]) {
-       const data = query.imageUrls[0].split(',')[1];
-       if (data) parts.push({ inlineData: { mimeType: "image/jpeg", data } });
-    }
-
-    // --- STRATEGY: Use SCANNER Model (Lite) for high throughput / low latency ---
-    const text = await generateWithGauntlet({
-      contents: { parts },
-      config: { responseMimeType: "application/json" }
-    }, "Semantic matcher.", MODEL_ROLES.SCANNER);
-
-    console.log(`[RETRIVA_AI] Raw Gemini Response: ${text.substring(0, 150)}...`);
-
-    const data = JSON.parse(cleanJSON(text));
-    let result = Array.isArray(data) ? data : (data.matches || []);
-    
-    // IMPORTANT: Only fallback if API fails, NOT if API says 0 matches. 
-    // Trust the AI if it says "matches": []
-    
-    CacheManager.set(cacheKey, result);
-    return result;
-  } catch (e) {
-    console.error("[RETRIVA_AI] Match error", e);
-    // Only perform local fallback on actual error
-    return performLocalFallbackMatch(query.title, query.description, query.category, candidateList);
   }
 };
 
