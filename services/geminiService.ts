@@ -270,20 +270,10 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         // If I found something on day Y, it must have been lost on day Y or earlier.
         return sourceItem.type === 'LOST' ? rTime >= sourceTime : sourceTime >= rTime;
     });
-    if (candidates.length === 0) return [];
-
-    console.log(`🔍 Smart Match: Sending ${candidates.length} candidates to AI...`);
-
-    // 2. AI Semantic Search (Wrapped in Logic)
     
-    const queryDesc = `Title: ${sourceItem.title}. Desc: ${sourceItem.description}. Loc: ${sourceItem.location}.`;
-    
-    const matches = await findPotentialMatches(
-        { description: queryDesc, imageUrls: sourceItem.imageUrls }, 
-        candidates
-    );
-
-    return candidates.filter(c => matches.some(m => m.id === c.id));
+    // STRICT FILTER MODE: Returning all candidates matched by Date, Status, and Polarity.
+    // AI semantic filtering has been removed to maximize recall.
+    return candidates;
 };
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
@@ -549,7 +539,7 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
   const second = isAGreater ? itemB : itemA;
 
   const cacheKey = await CacheManager.generateKey({ 
-    type: 'compare_v2', 
+    type: 'compare_v3', // Bump version to force invalidate old bad prompts
     id1: first.id, desc1: first.description, title1: first.title,
     id2: second.id, desc2: second.description, title2: second.title
   });
@@ -577,6 +567,11 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
       - Date: ${itemB.date}
       - Features: ${itemB.distinguishingFeatures?.join(', ') || itemB.tags.join(', ')}
 
+      CRITICAL RULES:
+      1. ASYMMETRIC DETAIL: If one item description is detailed (e.g. mentions scratches, specific stickers) and the other is generic (omits scratches), this is NOT a mismatch. It is an "Information Gap". Assume the generic reporter simply didn't notice or mention the detail.
+      2. SPECIFIC VS GENERIC: "OnePlus 13" matches "OnePlus Smartphone". "AirPods Pro 2" matches "Apple Earbuds". Treat specific model vs generic brand as a MATCH.
+      3. TIME & LOCATION: If location is same/nearby and time is within reasonable proximity, increase confidence significantly.
+
       Task: Analyze visual similarities (from provided images) and semantic details.
       
       Output JSON:
@@ -588,10 +583,10 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
       }
 
       Scoring Guide:
-      - 90-100: Exact Match (Same unique scratch, sticker, or extremely specific description).
-      - 70-89: High Probability (Same make, model, color, time, and location).
-      - 40-69: Possible Match (Same category and color, but generic).
-      - 0-39: Unlikely (Different type, color, or conflicting details).
+      - 90-100: Strong Match. Locations align, brands match. One might be more detailed than the other, but no direct contradictions.
+      - 70-89: Probable Match. Same type, color, and location. Minor variations in naming (e.g. Headphones vs Headset).
+      - 40-69: Possible. Same category, but vague.
+      - 0-39: Mismatch. Different colors, brands, or distinctly different locations/dates.
     `;
 
     const parts: any[] = [{ text: prompt }];
