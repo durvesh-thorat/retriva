@@ -4,8 +4,9 @@ import { ItemReport, ReportType, User } from '../types';
 import { 
   X, MapPin, Calendar, Tag, Check, Sparkles, Loader2, 
   ArrowRight, Clock, Fingerprint, MessageCircle, ChevronLeft, ChevronRight, 
-  Box, Maximize2, FileText, ScanSearch
+  Box, Maximize2, FileText, ScanSearch, ArrowLeftRight, ExternalLink, AlertCircle
 } from 'lucide-react';
+import { findPotentialMatches } from '../services/geminiService';
 
 interface ReportDetailsProps {
   report: ItemReport;
@@ -16,10 +17,11 @@ interface ReportDetailsProps {
   onEdit: (report: ItemReport) => void;
   onDelete: (id: string) => void;
   onNavigateToChat: (report: ItemReport) => void;
-  onViewMatch: (report: ItemReport) => void;
+  onViewMatch: (report: ItemReport) => void; // Used for "Switch to Item"
+  onCompare?: (item1: ItemReport, item2: ItemReport) => void; // New prop for manual compare
 }
 
-const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, currentUser, onClose, onResolve, onEdit, onDelete, onNavigateToChat, onViewMatch }) => {
+const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, currentUser, onClose, onResolve, onEdit, onDelete, onNavigateToChat, onViewMatch, onCompare }) => {
   const isOwner = report.reporterId === currentUser.id;
   const isLost = report.type === ReportType.LOST;
   
@@ -27,6 +29,10 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
   const [imgError, setImgError] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showLightbox, setShowLightbox] = useState(false);
+
+  // Scan State
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResults, setScanResults] = useState<ItemReport[] | null>(null);
 
   // Fallback Logic for AI Analysis content
   const displayFeatures = (report.distinguishingFeatures && report.distinguishingFeatures.length > 0) 
@@ -41,7 +47,37 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
 
   useEffect(() => {
     setImgError(false);
-  }, [activeImg, report]);
+    setActiveImg(0);
+    setScanResults(null); // Reset scan when report changes
+  }, [report.id]);
+
+  const handleScanNow = async () => {
+    setIsScanning(true);
+    setScanResults(null);
+    try {
+        // Find opposite type candidates that are OPEN and not mine
+        const targetType = report.type === ReportType.LOST ? ReportType.FOUND : ReportType.LOST;
+        const candidates = allReports.filter(r => r.type === targetType && r.status === 'OPEN' && r.reporterId !== currentUser.id);
+
+        if (candidates.length === 0) {
+            setScanResults([]);
+            setIsScanning(false);
+            return;
+        }
+
+        const queryDesc = `Title: ${report.title}. Desc: ${report.description}. Loc: ${report.location}. Tags: ${report.tags.join(', ')}`;
+        const results = await findPotentialMatches({ description: queryDesc, imageUrls: report.imageUrls }, candidates);
+        
+        const matchedReports = candidates.filter(c => results.some(r => r.id === c.id));
+        setScanResults(matchedReports);
+
+    } catch (e) {
+        console.error(e);
+        setScanResults([]);
+    } finally {
+        setIsScanning(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-0 sm:p-4 md:p-6 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
@@ -172,23 +208,80 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
 
                  {/* ACTION: SCAN FOR MATCHES */}
                  {report.status === 'OPEN' && (
-                   <button 
-                       onClick={() => onViewMatch(report)}
-                       className="w-full p-4 bg-gradient-to-r from-brand-violet/10 to-purple-600/10 dark:from-brand-violet/20 dark:to-purple-900/20 border border-brand-violet/20 rounded-xl flex items-center justify-between group transition-all hover:bg-brand-violet/15"
-                   >
-                       <div className="flex items-center gap-4">
-                         <div className="p-3 bg-brand-violet rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                             <ScanSearch className="w-5 h-5 text-white" />
-                         </div>
-                         <div className="text-left">
-                             <p className="text-[10px] font-bold uppercase tracking-widest text-brand-violet mb-0.5">AI Match Center</p>
-                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Scan for similar items</p>
-                         </div>
-                       </div>
-                       <div className="flex items-center gap-2 text-xs font-bold text-brand-violet">
-                          Scan Now <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                       </div>
-                   </button>
+                   <div className="space-y-4">
+                       {!scanResults ? (
+                            <button 
+                                onClick={handleScanNow}
+                                disabled={isScanning}
+                                className="w-full p-4 bg-gradient-to-r from-brand-violet/10 to-purple-600/10 dark:from-brand-violet/20 dark:to-purple-900/20 border border-brand-violet/20 rounded-xl flex items-center justify-between group transition-all hover:bg-brand-violet/15 disabled:opacity-70 disabled:cursor-not-allowed"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-brand-violet rounded-lg shadow-sm group-hover:scale-110 transition-transform">
+                                        {isScanning ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <ScanSearch className="w-5 h-5 text-white" />}
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-violet mb-0.5">AI Match Center</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                            {isScanning ? "Scanning campus database..." : "Scan for similar items"}
+                                        </p>
+                                    </div>
+                                </div>
+                                {!isScanning && (
+                                    <div className="flex items-center gap-2 text-xs font-bold text-brand-violet">
+                                        Scan Now <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                                    </div>
+                                )}
+                            </button>
+                       ) : (
+                           <div className="rounded-xl border border-indigo-100 dark:border-indigo-900 overflow-hidden bg-indigo-50/50 dark:bg-indigo-950/20 animate-in fade-in slide-in-from-top-4">
+                               <div className="px-4 py-3 border-b border-indigo-100 dark:border-indigo-900 flex justify-between items-center bg-indigo-50 dark:bg-indigo-900/30">
+                                   <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2">
+                                       <Sparkles className="w-3.5 h-3.5" /> {scanResults.length} Matches Found
+                                   </h4>
+                                   <button onClick={() => setScanResults(null)} className="text-indigo-400 hover:text-indigo-600"><X className="w-4 h-4" /></button>
+                               </div>
+                               
+                               <div className="p-2 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                                   {scanResults.length === 0 ? (
+                                       <div className="text-center py-6 text-slate-400">
+                                           <AlertCircle className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                                           <p className="text-xs font-bold">No matches found yet.</p>
+                                       </div>
+                                   ) : (
+                                       scanResults.map(match => (
+                                           <div key={match.id} className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800 flex items-center gap-3 shadow-sm">
+                                               <div className="w-12 h-12 rounded-md bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0">
+                                                   {match.imageUrls[0] ? <img src={match.imageUrls[0]} className="w-full h-full object-cover" /> : <Box className="w-6 h-6 m-auto text-slate-300" />}
+                                               </div>
+                                               <div className="flex-1 min-w-0">
+                                                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{match.title}</p>
+                                                   <p className="text-[10px] text-slate-500 truncate flex items-center gap-1"><MapPin className="w-2.5 h-2.5" /> {match.location}</p>
+                                               </div>
+                                               <div className="flex gap-2">
+                                                   {onCompare && (
+                                                       <button 
+                                                            onClick={() => onCompare(report, match)}
+                                                            className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-200 dark:hover:bg-indigo-900 transition-colors"
+                                                            title="Compare"
+                                                       >
+                                                            <ArrowLeftRight className="w-4 h-4" />
+                                                       </button>
+                                                   )}
+                                                   <button 
+                                                        onClick={() => onViewMatch(match)}
+                                                        className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                                        title="View Item"
+                                                   >
+                                                        <ExternalLink className="w-4 h-4" />
+                                                   </button>
+                                               </div>
+                                           </div>
+                                       ))
+                                   )}
+                               </div>
+                           </div>
+                       )}
+                   </div>
                  )}
               </div>
 

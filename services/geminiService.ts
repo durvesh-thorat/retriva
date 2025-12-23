@@ -358,10 +358,28 @@ export const findPotentialMatches = async (
 ): Promise<{ id: string }[]> => {
   if (candidates.length === 0) return [];
   try {
-    // Only send the first 5 candidates to avoid huge payload if we are rate limited
-    const candidateList = candidates.slice(0, 5).map(c => ({ id: c.id, t: c.title, d: c.description, c: c.category }));
+    // Increased to 30 to capture more candidates in one pass since Gemini Flash has large context
+    const candidateList = candidates.slice(0, 30).map(c => ({ 
+        id: c.id, 
+        title: c.title, 
+        desc: c.description, 
+        cat: c.category,
+        tags: c.tags 
+    }));
     
-    const parts: any[] = [{ text: `Find matches for "${query.description}" in: ${JSON.stringify(candidateList)}. Return JSON { "matches": [{ "id": "..." }] }.` }];
+    const parts: any[] = [{ text: `Perform a fuzzy semantic search.
+      Query Item: "${query.description}".
+      
+      Task: Return a list of IDs from the Candidates list that represent the SAME object or a HIGHLY PROBABLE match.
+      
+      Rules:
+      1. Be lenient with keywords. "Sony WH-1000XM4" (Specific) matches "Sony Wireless Headphones" (Generic).
+      2. Ignore minor color naming differences (e.g. "Space Grey" == "Grey").
+      3. Focus on object type and key visual identifiers.
+      
+      Candidates: ${JSON.stringify(candidateList)}. 
+      
+      Return JSON { "matches": [{ "id": "..." }] }. Return empty array if no likely matches.` }];
     
     if (query.imageUrls[0]) {
        const data = query.imageUrls[0].split(',')[1];
@@ -371,7 +389,7 @@ export const findPotentialMatches = async (
     const text = await generateWithGauntlet({
       contents: { parts },
       config: { responseMimeType: "application/json" }
-    }, "You are a matching engine.");
+    }, "You are a semantic matching engine.");
 
     const data = JSON.parse(cleanJSON(text));
     return data.matches || [];

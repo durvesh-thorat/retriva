@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
 import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar } from 'lucide-react';
@@ -188,10 +189,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
           onEdit={(r) => { onEditReport(r); setSelectedReport(null); }}
           onDelete={(id) => { onDeleteReport(id); setSelectedReport(null); }}
           onNavigateToChat={(report) => { onChatStart(report); setSelectedReport(null); }}
-          onViewMatch={(r) => { 
-             document.getElementById('ai-discovery-hub')?.scrollIntoView({ behavior: 'smooth' });
+          onViewMatch={(r) => setSelectedReport(r)} // Switches the modal to the new item
+          onCompare={(item1, item2) => {
+             // We close the details modal to show the full screen comparator
              setSelectedReport(null);
-             if (!hasMatches) handleManualScan();
+             onCompare(item1, item2);
           }}
         />
       )}
