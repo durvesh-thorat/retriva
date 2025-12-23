@@ -148,6 +148,9 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         // Optimistic UI update: Store base64 for preview
         setImageStatuses(prev => [...prev, { url: base64, file: file, status: 'checking' }]);
         
+        // Use the length before adding the new one for the removal index (N)
+        const newImageIndex = imageStatuses.length; 
+
         // A. Redaction Check (Documents/Faces/PII)
         setIsRedacting(true);
         let wasRedacted = false;
@@ -187,7 +190,12 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
         const security = await instantImageCheck(base64);
         if (security.violationType !== 'NONE') {
            setImageStatuses(prev => prev.map(s => s.url === base64 ? { ...s, status: 'prank' } : s));
-           setAiFeedback({ severity: 'BLOCK', type: security.violationType, message: "Image blocked: Policy Violation", onAction: () => removeImage(imageStatuses.length) });
+           setAiFeedback({ 
+               severity: 'BLOCK', 
+               type: security.violationType, 
+               message: security.reason || "Image blocked: Policy Violation", 
+               onAction: () => removeImage(newImageIndex) 
+           });
            return;
         }
 

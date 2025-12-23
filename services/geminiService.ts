@@ -168,17 +168,37 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     const text = await generateWithGauntlet({
       contents: {
         parts: [
-          { text: `SYSTEM: Security Scan. Analyze image for violations (GORE, NUDITY, PRIVACY). Return JSON.` },
+          { text: `SYSTEM: Security Scan. Analyze image for violations. 
+            Policies: 
+            1. GORE (bloody, violent)
+            2. NUDITY (explicit content)
+            3. PRIVACY (harassment, sensitive docs). 
+            
+            Return JSON with:
+            - violationType: "GORE", "NUDITY", "PRIVACY", or "NONE"
+            - isPrank: boolean
+            - reason: string
+            
+            If safe, violationType must be "NONE".` 
+          },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
       config: { responseMimeType: "application/json" }
     });
 
-    return JSON.parse(cleanJSON(text));
+    const parsed = JSON.parse(cleanJSON(text));
+    
+    // Explicitly set defaults to prevent "undefined" being treated as a violation
+    return {
+        faceStatus: parsed.faceStatus || 'NONE',
+        isPrank: parsed.isPrank || false,
+        violationType: parsed.violationType || 'NONE',
+        reason: parsed.reason || ''
+    };
   } catch (e) {
-    console.error(e);
-    // Fail safe
+    console.error("Image Check Failed", e);
+    // Fail safe - Default to NONE if the check crashes, to avoid blocking valid users during outages
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
@@ -223,7 +243,17 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
       },
       config: { responseMimeType: "application/json" }
     });
-    return JSON.parse(cleanJSON(text));
+    
+    const parsed = JSON.parse(cleanJSON(text));
+    return {
+        title: parsed.title || "",
+        category: parsed.category || ItemCategory.OTHER,
+        tags: parsed.tags || [],
+        color: parsed.color || "",
+        brand: parsed.brand || "",
+        condition: parsed.condition || "",
+        distinguishingFeatures: parsed.distinguishingFeatures || []
+    };
   } catch (e) {
     return { 
       title: "", category: ItemCategory.OTHER, tags: [], 
