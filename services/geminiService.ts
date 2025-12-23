@@ -297,10 +297,9 @@ export const instantImageCheck = async (base64Image: string): Promise<{
             1. REJECT 'GORE': Bloody, violent, or disturbing content.
             2. REJECT 'NUDITY': Explicit content.
             3. REJECT 'HUMAN': Selfies, portraits, or photos where a person is the main subject.
-               - If the image is just a person's face/body with no clear lost item -> REJECT.
-               - If the image contains a person holding an item -> ALLOW (NONE).
-            4. ALLOW 'DOCUMENTS': ID Cards, Passports, Papers with faces. 
-               - Even if it contains a face, if it is a document -> ALLOW (NONE). (We will redact it later).
+               - If the image contains a person's face/body (selfie, portrait, group photo) -> REJECT.
+               - EXCEPTION: If the image is a DOCUMENT (ID Card, Passport, License) containing a face -> ALLOW (NONE). (We will redact it later).
+               - EXCEPTION: If the image contains hands holding an item -> ALLOW (NONE).
             
             Return JSON:
             {
@@ -342,7 +341,7 @@ export const detectRedactionRegions = async (base64Image: string): Promise<numbe
     const text = await generateWithGauntlet({
       contents: {
         parts: [
-          { text: `Identify bounding boxes [ymin, xmin, ymax, xmax] (scale 0-1000) for Faces, ID Cards, Credit Cards. Return JSON { "regions": [[...]] }` },
+          { text: `Identify bounding boxes [ymin, xmin, ymax, xmax] (scale 0-1000) for Faces, ID Cards, Credit Cards, and PII. Return JSON { "regions": [[...]] }` },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
       },
