@@ -166,7 +166,7 @@ const STOP_WORDS = new Set([
 ]);
 
 const performLocalFallbackMatch = (queryTitle: string, queryDescription: string, queryCategory: ItemCategory, candidateList: any[]): { id: string }[] => {
-    console.log("[RETRIVA_AI] 🛠️ Executing Strict Local Fallback Match...");
+    console.log("[RETRIVA_AI] 🛠️ Executing Strict Local Fallback Match (API Failed)...");
     
     const normalize = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
     
@@ -330,15 +330,16 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         return [];
     }
 
-    // Date Buffer
+    // Date Buffer - Relaxed from 48h to 30 Days to allow AI to see more data
     const sourceTime = parseDateVal(sourceItem.date);
-    const BUFFER_MS = 86400000 * 2; // 48 Hours
+    const BUFFER_MS = 86400000 * 30; // 30 Days
 
     candidates = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
-        if (sourceItem.type === 'LOST') return rTime >= (sourceTime - BUFFER_MS);
-        else return (sourceTime + BUFFER_MS) >= rTime;
+        return Math.abs(rTime - sourceTime) <= BUFFER_MS;
     });
+
+    console.log(`Step 2: ${candidates.length} candidates after date filtering.`);
 
     // Sort by proximity
     candidates.sort((a, b) => {
@@ -638,14 +639,8 @@ export const findPotentialMatches = async (
 ): Promise<{ id: string }[]> => {
   if (candidates.length === 0) return [];
   
-  const candidateIds = candidates.map(c => c.id).sort().join(',');
-  const cacheKey = await CacheManager.generateKey({ type: 'match_v5', query, candidateIds });
-  
-  const cached = CacheManager.get(cacheKey);
-  if (cached) return cached as any;
-
-  try {
-    const candidateList = candidates.slice(0, 30).map(c => ({ 
+  // NOTE: Candidates are now batched up to 100 to allow AI scan to work effectively
+  const candidateList = candidates.slice(0, 100).map(c => ({ 
         id: c.id, 
         title: c.title, 
         desc: c.description, 
@@ -653,6 +648,12 @@ export const findPotentialMatches = async (
         tags: c.tags 
     }));
 
+  const cacheKey = await CacheManager.generateKey({ type: 'match_v6', query, candidateIds: candidateList.map(c => c.id).sort().join(',') });
+  
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
+  try {
     // DEBUG: Log what we are sending
     console.log(`[RETRIVA_AI] Sending ${candidateList.length} candidates to model:`, candidateList);
     
@@ -665,6 +666,7 @@ export const findPotentialMatches = async (
       INSTRUCTIONS:
       1. STRICT OBJECT TYPE CHECK: "Mouse" != "Calculator".
       2. IGNORE GENERIC ATTRIBUTES if object type differs.
+      3. BE LENIENT ON DATES. Items found days later are still matches.
       
       OUTPUT: JSON { "matches": [{ "id": "..." }] }
     ` }];
@@ -685,15 +687,14 @@ export const findPotentialMatches = async (
     const data = JSON.parse(cleanJSON(text));
     let result = Array.isArray(data) ? data : (data.matches || []);
     
-    if (result.length === 0) {
-        result = performLocalFallbackMatch(query.title, query.description, query.category, candidateList);
-    }
+    // IMPORTANT: Only fallback if API fails, NOT if API says 0 matches. 
+    // Trust the AI if it says "matches": []
     
     CacheManager.set(cacheKey, result);
     return result;
   } catch (e) {
     console.error("[RETRIVA_AI] Match error", e);
-    const candidateList = candidates.slice(0, 30).map(c => ({ id: c.id, title: c.title, desc: c.description, cat: c.category, tags: c.tags }));
+    // Only perform local fallback on actual error
     return performLocalFallbackMatch(query.title, query.description, query.category, candidateList);
   }
 };

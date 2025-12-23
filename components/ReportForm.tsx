@@ -268,6 +268,7 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
       return;
     }
 
+    // STRICT: Found items MUST have an image
     if (!isLost && imageStatuses.length === 0) {
       setFormError("Found reports MUST include a photo.");
       return;
