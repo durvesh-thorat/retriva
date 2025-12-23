@@ -9,21 +9,100 @@ export interface ComparisonResult {
   differences: string[];
 }
 
-// --- CONFIGURATION: THE MODERN PIPELINE ---
-// Updated to use specific stable identifiers for Gemini 3.0 and 2.5 series.
+// --- CONFIGURATION ---
 const MODEL_PIPELINE = [
-  'gemini-3-flash-preview',   // Primary: Frontier-level visual reasoning
-  'gemini-2.5-flash',         // Stable 2.5: 1M token context window
-  'gemini-2.5-flash-image',   // Specialized: Image editing/reasoning
-  'gemini-2.0-flash',         // Stable GA: Standard production model
-  'gemini-2.0-flash-lite'     // Lite: High-frequency, low-cost
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-image',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite'
 ];
+
+const CACHE_PREFIX = 'retriva_ai_cache_';
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 Hours
+
+// --- CACHE MANAGER ---
+const CacheManager = {
+  async generateKey(data: any): Promise<string> {
+    try {
+      const msgBuffer = new TextEncoder().encode(JSON.stringify(data));
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      // Fallback for non-secure contexts (though unlikely in modern React apps)
+      return 'fallback_' + JSON.stringify(data).length + '_' + Date.now();
+    }
+  },
+
+  get<T>(key: string): T | null {
+    try {
+      const itemStr = localStorage.getItem(CACHE_PREFIX + key);
+      if (!itemStr) return null;
+      
+      const item = JSON.parse(itemStr);
+      if (Date.now() > item.expiry) {
+        localStorage.removeItem(CACHE_PREFIX + key);
+        return null;
+      }
+      // console.log(`⚡ Cache Hit: ${key.substring(0, 8)}...`);
+      return item.value;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  set(key: string, value: any) {
+    try {
+      const item = { value, expiry: Date.now() + CACHE_EXPIRY };
+      localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(item));
+    } catch (e) {
+      console.warn("Cache quota exceeded. Pruning...");
+      this.prune(true);
+      try {
+         localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ value, expiry: Date.now() + CACHE_EXPIRY }));
+      } catch (e2) {}
+    }
+  },
+
+  prune(forceFreeSpace = false) {
+    const now = Date.now();
+    const entries: { key: string, expiry: number }[] = [];
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CACHE_PREFIX)) {
+        try {
+          const item = JSON.parse(localStorage.getItem(key) || '{}');
+          if (!item.expiry || now > item.expiry) {
+            localStorage.removeItem(key);
+          } else {
+            entries.push({ key, expiry: item.expiry });
+          }
+        } catch (e) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+
+    if (forceFreeSpace && entries.length > 0) {
+      // Sort by expiry (soonest to expire first) and remove oldest 30%
+      entries.sort((a, b) => a.expiry - b.expiry);
+      const toRemove = Math.ceil(entries.length * 0.3);
+      entries.slice(0, toRemove).forEach(e => localStorage.removeItem(e.key));
+    }
+  }
+};
+
+// Initialize cleanup
+if (typeof window !== 'undefined') {
+  setTimeout(() => CacheManager.prune(), 5000);
+}
 
 // --- HELPER: API KEY ---
 const getApiKey = (): string | undefined => {
   // @ts-ignore
   const key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
-  // If running in node/process env fallback
   if (!key && typeof process !== 'undefined') {
     return process.env.VITE_API_KEY || process.env.API_KEY;
   }
@@ -45,21 +124,16 @@ const cleanJSON = (text: string): string => {
 // --- HELPER: DATE PARSER ---
 const parseDateVal = (dateStr: string): number => {
     if (!dateStr) return 0;
-    // Handle DD/MM/YYYY format standard in this app
     const parts = dateStr.split('/');
     if (parts.length === 3) {
-        // Note: Month is 0-indexed in JS Date
         return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
     }
-    // Fallback for YYYY-MM-DD or other formats
     return new Date(dateStr).getTime();
 };
 
 // --- MODEL MANAGER CLASS ---
 class ModelManager {
-  // We only permanently ban 404s (Model Not Found) for the session.
   private sessionBans: Set<string> = new Set();
-  // We temporarily cool down models that return 429s/503s so we don't hammer them across parallel requests
   private temporaryCooldowns: Map<string, number> = new Map();
 
   public banModel(model: string, reason: string) {
@@ -68,30 +142,22 @@ class ModelManager {
   }
 
   public markModelBusy(model: string) {
-    const cooldownDuration = 60000; // 1 minute cooldown
+    const cooldownDuration = 60000;
     console.warn(`❄️ Cooling down ${model} for ${cooldownDuration/1000}s due to Rate Limiting.`);
     this.temporaryCooldowns.set(model, Date.now() + cooldownDuration);
   }
 
   public getAvailableModels(): string[] {
     const now = Date.now();
-    
-    // 1. Filter out permanently banned models (404s)
     let candidates = MODEL_PIPELINE.filter(model => !this.sessionBans.has(model));
-    
-    // 2. Filter out temporarily busy models (429s)
     const ready = candidates.filter(model => {
         const expiry = this.temporaryCooldowns.get(model);
         return !expiry || now > expiry;
     });
-
-    // 3. Fail-safe: If ALL models are cooling down, return the banned-filtered list
-    // (Better to try a busy model than to have 0 models and crash)
     if (ready.length === 0 && candidates.length > 0) {
         console.warn("⚠️ All models are currently busy. Ignoring cooldowns to attempt request.");
         return candidates;
     }
-
     return ready;
   }
 }
@@ -115,23 +181,18 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 
   let lastError: any = null;
 
-  // Iterate through available models
   for (const model of pipeline) {
     let retries = 0;
-    const MAX_RETRIES = 1; // Reduced from 3 to 1 to failover faster if a model is stalling
+    const MAX_RETRIES = 1;
 
-    // Inner Loop: Retry the SAME model if it is just busy (429/503)
     while (retries <= MAX_RETRIES) {
         try {
-            // Clean config
             const config = { ...params.config };
-            delete config.thinkingConfig; // Ensure compatibility
+            delete config.thinkingConfig;
             
             if (systemInstruction) {
                 config.systemInstruction = systemInstruction;
             }
-
-            // console.log(`🚀 Sending to ${model} (Attempt ${retries + 1})`);
 
             const response = await ai.models.generateContent({
                 ...params,
@@ -145,41 +206,33 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
             const msg = (error.message || "").toLowerCase();
             const status = error.status || 0;
 
-            // 1. MODEL NOT FOUND (404) or INVALID ARGUMENT (400)
-            // This model name is wrong for this key/region. Ban it and move to next model immediately.
             if (status === 404 || msg.includes('not found') || status === 400) {
                 modelManager.banModel(model, `Status ${status}: ${msg}`);
-                break; // Break inner loop, outer loop moves to next model
+                break;
             }
 
-            // 2. RATE LIMIT (429) or OVERLOAD (503)
-            // The model exists but is busy. Wait and retry.
             if (status === 429 || status === 503 || msg.includes('quota') || msg.includes('overloaded')) {
                 retries++;
                 if (retries <= MAX_RETRIES) {
-                    // Exponential backoff: 2s (1st retry)
                     const waitTime = Math.pow(2, retries) * 1000; 
                     console.warn(`⏳ ${model} is busy (429). Retrying in ${waitTime/1000}s...`);
                     await delay(waitTime);
-                    continue; // Continue inner loop (retry same model)
+                    continue;
                 } else {
                     console.warn(`❌ ${model} exhausted retries. Failing over to next model.`);
-                    modelManager.markModelBusy(model); // Mark it busy for OTHER parallel requests too
+                    modelManager.markModelBusy(model);
                     lastError = error;
-                    break; // Break inner loop, outer loop moves to next model
+                    break;
                 }
             }
 
-            // 3. OTHER ERRORS (500, Unknown)
-            // Log and try next model immediately
             console.warn(`❌ Error with ${model}: ${msg}`);
             lastError = error;
-            break; // Break inner loop, outer loop moves to next model
+            break;
         }
     }
   }
 
-  // If we exhaust the entire pipeline
   if (typeof window !== 'undefined') {
       const event = new CustomEvent('retriva-toast', { 
           detail: { 
@@ -196,19 +249,8 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 
 // --- EXPORTED FEATURES (API) ---
 
-/**
- * HIGH EFFICIENCY MATCHING ENGINE
- * Filters candidates based on strict logic before sending to AI.
- * 
- * Logic:
- * 1. Status: Must be OPEN
- * 2. Polarity: LOST vs FOUND
- * 3. Date: Found Date >= Lost Date
- * 4. Category: Strict match
- * 5. Tags: At least one tag overlap
- */
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
-    // 1. Initial Filter: Status, Type (Polarity), and Exclude Self
+    // 1. Initial Filter (Logic Funnel)
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
     
     let candidates = allReports.filter(r => 
@@ -219,60 +261,32 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     if (candidates.length === 0) return [];
 
-    // 2. Strict Category Match
+    // Category
     candidates = candidates.filter(r => r.category === sourceItem.category);
-
     if (candidates.length === 0) return [];
 
-    // 3. Date Logic
-    // Logic: An item cannot be found BEFORE it was lost.
-    // IF Source is LOST: Candidate (Found) Date must be >= Source (Lost) Date
-    // IF Source is FOUND: Source (Found) Date must be >= Candidate (Lost) Date
+    // Date
     const sourceTime = parseDateVal(sourceItem.date);
-    
     candidates = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
-        // Allow for same-day matches
-        if (sourceItem.type === 'LOST') {
-            return rTime >= sourceTime;
-        } else {
-            return sourceTime >= rTime;
-        }
+        return sourceItem.type === 'LOST' ? rTime >= sourceTime : sourceTime >= rTime;
     });
-
     if (candidates.length === 0) return [];
 
-    // 4. Tag Overlap (At least one tag must match)
-    // Normalize source tags for case-insensitive comparison
-    const sourceTags = new Set(sourceItem.tags.map(t => t.toLowerCase().trim()));
+    console.log(`🔍 Smart Match: Sending ${candidates.length} candidates to AI...`);
+
+    // 2. AI Semantic Search (Wrapped in Logic)
+    // We don't cache findSmartMatches directly because 'allReports' changes frequently.
+    // Instead we rely on 'findPotentialMatches' caching which is based on the specific candidate set.
     
-    candidates = candidates.filter(r => {
-        // If either has no tags, we can't enforce overlap strictly? 
-        // User rule: "A and B must've atleast one tag same"
-        // If a report has 0 tags, it can never match.
-        if (sourceItem.tags.length === 0 || r.tags.length === 0) return false;
-        
-        return r.tags.some(t => sourceTags.has(t.toLowerCase().trim()));
-    });
-
-    // If no candidates left after strict logic, return early (Saves API call & Time)
-    if (candidates.length === 0) return [];
-
-    console.log(`🔍 Smart Match: Filtered down to ${candidates.length} logical candidates from ${allReports.length}. Sending to AI...`);
-
-    // 5. AI Semantic Search on remaining filtered candidates
-    // Construct text query for the AI
     const queryDesc = `Title: ${sourceItem.title}. Desc: ${sourceItem.description}. Loc: ${sourceItem.location}.`;
     
-    // Call the AI matching function with the reduced list
     const matches = await findPotentialMatches(
         { description: queryDesc, imageUrls: sourceItem.imageUrls }, 
         candidates
     );
 
-    // Map back the ID results to full objects
-    const matchedReports = candidates.filter(c => matches.some(m => m.id === c.id));
-    return matchedReports;
+    return candidates.filter(c => matches.some(m => m.id === c.id));
 };
 
 export const instantImageCheck = async (base64Image: string): Promise<{ 
@@ -281,23 +295,19 @@ export const instantImageCheck = async (base64Image: string): Promise<{
   violationType: 'GORE' | 'ANIMAL' | 'HUMAN' | 'NONE';
   reason: string;
 }> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'imgCheck', data: base64Image });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const base64Data = base64Image.split(',')[1] || base64Image;
     const text = await generateWithGauntlet({
       contents: {
         parts: [
           { text: `SYSTEM: Security Scan. Analyze image for violations. 
-            Policies: 
-            1. GORE (bloody, violent)
-            2. NUDITY (explicit content)
-            3. PRIVACY (harassment, sensitive docs). 
-            
-            Return JSON with:
-            - violationType: "GORE", "NUDITY", "PRIVACY", or "NONE"
-            - isPrank: boolean
-            - reason: string
-            
-            If safe, violationType must be "NONE".` 
+            Policies: 1. GORE (bloody) 2. NUDITY 3. PRIVACY (docs). 
+            Return JSON: violationType ("GORE","NUDITY","PRIVACY","NONE"), isPrank, reason.
+            If safe, violationType="NONE".` 
           },
           { inlineData: { mimeType: "image/jpeg", data: base64Data } }
         ]
@@ -306,22 +316,26 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     });
 
     const parsed = JSON.parse(cleanJSON(text));
-    
-    // Explicitly set defaults to prevent "undefined" being treated as a violation
-    return {
+    const result = {
         faceStatus: parsed.faceStatus || 'NONE',
         isPrank: parsed.isPrank || false,
         violationType: parsed.violationType || 'NONE',
         reason: parsed.reason || ''
     };
+    
+    CacheManager.set(cacheKey, result);
+    return result as any;
   } catch (e) {
     console.error("Image Check Failed", e);
-    // Fail safe - Default to NONE if the check crashes, to avoid blocking valid users during outages
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
 
 export const detectRedactionRegions = async (base64Image: string): Promise<number[][]> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'redact', data: base64Image });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const base64Data = base64Image.split(',')[1] || base64Image;
     const text = await generateWithGauntlet({
@@ -335,7 +349,9 @@ export const detectRedactionRegions = async (base64Image: string): Promise<numbe
     });
 
     const data = JSON.parse(cleanJSON(text));
-    return data.regions || [];
+    const regions = data.regions || [];
+    CacheManager.set(cacheKey, regions);
+    return regions;
   } catch (e) {
     return [];
   }
@@ -350,6 +366,10 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
   condition: string;
   distinguishingFeatures: string[];
 }> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'visual', data: base64Image });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const base64Data = base64Image.split(',')[1] || base64Image;
     const text = await generateWithGauntlet({
@@ -363,7 +383,7 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
     });
     
     const parsed = JSON.parse(cleanJSON(text));
-    return {
+    const result = {
         title: parsed.title || "",
         category: parsed.category || ItemCategory.OTHER,
         tags: parsed.tags || [],
@@ -372,6 +392,8 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
         condition: parsed.condition || "",
         distinguishingFeatures: parsed.distinguishingFeatures || []
     };
+    CacheManager.set(cacheKey, result);
+    return result;
   } catch (e) {
     return { 
       title: "", category: ItemCategory.OTHER, tags: [], 
@@ -381,13 +403,20 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
 };
 
 export const mergeDescriptions = async (userContext: string, visualData: any): Promise<string> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'merge', userContext, visualData });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const text = await generateWithGauntlet({
       contents: {
         parts: [{ text: `Merge visual data (${JSON.stringify(visualData)}) with user context ("${userContext}") into a concise Lost & Found item description.` }]
       }
     }, "You are a helpful copywriter.");
-    return text || userContext;
+    
+    const result = text || userContext;
+    CacheManager.set(cacheKey, result);
+    return result;
   } catch (e) {
     return userContext;
   }
@@ -398,6 +427,10 @@ export const analyzeItemDescription = async (
   base64Images: string[] = [],
   title: string = ""
 ): Promise<GeminiAnalysisResult> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'analyze', description, title, imageHashes: base64Images.map(s => s.length) });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const parts: any[] = [{ text: `Analyze item: "${title} - ${description}". JSON output: isViolating (bool), violationType, category, summary, tags.` }];
     
@@ -411,20 +444,23 @@ export const analyzeItemDescription = async (
       config: { responseMimeType: "application/json" }
     }, "You are a content moderator and classifier.");
 
-    const result = JSON.parse(cleanJSON(text));
-    return {
-      isViolating: result.isViolating || false,
-      violationType: result.violationType || 'NONE',
-      violationReason: result.violationReason || '',
+    const resultRaw = JSON.parse(cleanJSON(text));
+    const result = {
+      isViolating: resultRaw.isViolating || false,
+      violationType: resultRaw.violationType || 'NONE',
+      violationReason: resultRaw.violationReason || '',
       isPrank: false,
-      category: result.category || ItemCategory.OTHER,
-      title: result.title || title,
-      description: result.description || description,
-      summary: result.summary || description.substring(0, 50),
-      tags: result.tags || [],
-      distinguishingFeatures: result.distinguishingFeatures || [],
+      category: resultRaw.category || ItemCategory.OTHER,
+      title: resultRaw.title || title,
+      description: resultRaw.description || description,
+      summary: resultRaw.summary || description.substring(0, 50),
+      tags: resultRaw.tags || [],
+      distinguishingFeatures: resultRaw.distinguishingFeatures || [],
       faceStatus: 'NONE'
     };
+    
+    CacheManager.set(cacheKey, result);
+    return result as any;
   } catch (error) {
     return { 
       isViolating: false, isPrank: false, category: ItemCategory.OTHER, 
@@ -434,11 +470,17 @@ export const analyzeItemDescription = async (
 };
 
 export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LOST' | 'FOUND' | 'NONE'; refinedQuery: string }> => {
+  const cacheKey = await CacheManager.generateKey({ type: 'search', query });
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const text = await generateWithGauntlet({
       contents: { parts: [{ text: `Analyze query: "${query}". Return JSON: userStatus (LOST/FOUND/NONE), refinedQuery (keywords).` }] }
     }, "You are a search intent analyzer.");
-    return JSON.parse(cleanJSON(text));
+    const result = JSON.parse(cleanJSON(text));
+    CacheManager.set(cacheKey, result);
+    return result;
   } catch (e) {
     return { userStatus: 'NONE', refinedQuery: query };
   }
@@ -449,6 +491,15 @@ export const findPotentialMatches = async (
   candidates: ItemReport[]
 ): Promise<{ id: string }[]> => {
   if (candidates.length === 0) return [];
+  
+  // Create a key based on the query AND the candidate set IDs.
+  // If candidates change (new items added), the key changes, invalidating cache. Correct behavior.
+  const candidateIds = candidates.map(c => c.id).sort().join(',');
+  const cacheKey = await CacheManager.generateKey({ type: 'match', query, candidateIds });
+  
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     // Increased to 30 to capture more candidates in one pass since Gemini Flash has large context
     const candidateList = candidates.slice(0, 30).map(c => ({ 
@@ -484,7 +535,9 @@ export const findPotentialMatches = async (
     }, "You are a semantic matching engine.");
 
     const data = JSON.parse(cleanJSON(text));
-    return data.matches || [];
+    const result = data.matches || [];
+    CacheManager.set(cacheKey, result);
+    return result;
   } catch (e) {
     console.error("Match error", e);
     return [];
@@ -492,6 +545,14 @@ export const findPotentialMatches = async (
 };
 
 export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promise<ComparisonResult> => {
+  // Use IDs for cache key. We assume items don't mutate significantly for comparison purposes.
+  // Sorting IDs ensures A vs B is same as B vs A cache hit.
+  const ids = [itemA.id, itemB.id].sort().join('_');
+  const cacheKey = await CacheManager.generateKey({ type: 'compare', ids });
+  
+  const cached = CacheManager.get(cacheKey);
+  if (cached) return cached as any;
+
   try {
     const parts: any[] = [{ text: `Compare Item A (${itemA.title}) vs Item B (${itemB.title}). Return JSON: confidence (0-100), explanation, similarities (array), differences (array).` }];
     
@@ -506,7 +567,9 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
        config: { responseMimeType: "application/json" }
     }, "You are a forensic analyst.");
     
-    return JSON.parse(cleanJSON(text));
+    const result = JSON.parse(cleanJSON(text));
+    CacheManager.set(cacheKey, result);
+    return result;
   } catch (e) {
     return { confidence: 0, explanation: "Comparison unavailable.", similarities: [], differences: [] };
   }
