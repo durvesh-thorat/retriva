@@ -76,7 +76,13 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Tries models in sequence with exponential backoff for 429s.
 const runIntelligentCascade = async (params: any, systemInstruction?: string): Promise<string | null> => {
   const apiKey = getApiKey();
-  if (!apiKey) return null;
+  
+  if (!apiKey) {
+      console.error("[DEBUG_GEMINI] ❌ API Key is MISSING. Check .env or Vercel settings.");
+      return null;
+  } else {
+      // console.log(`[DEBUG_GEMINI] 🔑 API Key found (Length: ${apiKey.length})`);
+  }
 
   const ai = new GoogleGenAI({ apiKey });
   
@@ -89,7 +95,7 @@ const runIntelligentCascade = async (params: any, systemInstruction?: string): P
             // Apply delay if it's a retry or secondary model to let quota cool down
             if (i > 0 || attempt > 0) {
                 const waitTime = BASE_DELAY * Math.pow(1.5, i + attempt);
-                console.log(`[RETRIVA_AI] ⏳ Waiting ${waitTime}ms before trying ${model} (Attempt ${attempt+1})...`);
+                console.log(`[DEBUG_GEMINI] ⏳ Waiting ${waitTime}ms before trying ${model} (Attempt ${attempt+1})...`);
                 await delay(waitTime);
             }
 
@@ -100,6 +106,14 @@ const runIntelligentCascade = async (params: any, systemInstruction?: string): P
                 config.systemInstruction = systemInstruction;
             }
 
+            // Log payload size if images exist
+            if (params.contents?.parts?.length > 1) {
+                const imgPart = params.contents.parts.find((p: any) => p.inlineData);
+                if (imgPart) {
+                    console.log(`[DEBUG_GEMINI] 📤 Sending Image Payload (~${Math.round(imgPart.inlineData.data.length / 1024)}KB) to ${model}`);
+                }
+            }
+
             const response = await ai.models.generateContent({
                 ...params,
                 model,
@@ -107,22 +121,39 @@ const runIntelligentCascade = async (params: any, systemInstruction?: string): P
             });
 
             if (response.text) {
+                // console.log(`[DEBUG_GEMINI] ✅ Success with ${model}`);
                 return response.text;
+            } else {
+                console.warn(`[DEBUG_GEMINI] ⚠️ ${model} returned empty text.`);
             }
         } catch (error: any) {
             const isQuotaError = error.message?.includes('429') || error.status === 429;
             const isNotFoundError = error.message?.includes('404') || error.status === 404;
+            const isOverloaded = error.message?.includes('503') || error.status === 503;
 
-            console.warn(`[RETRIVA_AI] ⚠️ Model ${model} failed (Attempt ${attempt+1}): ${error.message || error.status}`);
+            console.error(`[DEBUG_GEMINI] 🛑 Error in ${model} (Attempt ${attempt+1}):`);
+            if (error.response) {
+                 console.error(`   Status: ${error.response.status}`);
+                 console.error(`   Body: ${JSON.stringify(error.response)}`);
+            } else {
+                 console.error(`   Message: ${error.message}`);
+            }
 
-            if (isNotFoundError) break; // Don't retry 404s on the same model, switch to next in cascade
-            if (!isQuotaError) break; // Unknown error, move to next model
-            // If 429, loop will retry
+            if (isNotFoundError) {
+                console.warn(`[DEBUG_GEMINI] ⏭️ Model ${model} not found/supported. Skipping to next.`);
+                break; // Don't retry 404s on the same model
+            }
+            
+            if (!isQuotaError && !isOverloaded) {
+                console.warn(`[DEBUG_GEMINI] ⏭️ Non-retriable error. Skipping to next model.`);
+                break; 
+            }
+            // If 429 or 503, loop will retry
         }
     }
   }
   
-  console.error("[RETRIVA_AI] ❌ CRITICAL: All AI models exhausted.");
+  console.error("[DEBUG_GEMINI] ❌ CRITICAL: All AI models exhausted. Returning null.");
   return null; 
 };
 
@@ -131,10 +162,10 @@ const runIntelligentCascade = async (params: any, systemInstruction?: string): P
 
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<{ report: ItemReport, confidence: number, isOffline: boolean }[]> => {
     
-    const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
-    // const BUFFER_MS = 86400000 * 120; // 4 months
-    // const sourceTime = new Date(sourceItem.date).getTime();
+    console.log(`[DEBUG_GEMINI] 🔍 Starting Smart Match for: ${sourceItem.title}`);
 
+    const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
+    
     // 1. Loose Pre-Filtering (Let AI decide the rest)
     // We only filter by status and type. We let AI handle category fuzziness (e.g. "Phone" vs "Electronics").
     let candidates = allReports.filter(r => 
@@ -145,10 +176,14 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     // Optimize: If too many candidates, take the most recent 30 to prevent context overflow
     if (candidates.length > 30) {
+        console.log(`[DEBUG_GEMINI] Trimming candidates from ${candidates.length} to 30`);
         candidates = candidates.slice(0, 30);
     }
 
-    if (candidates.length === 0) return [];
+    if (candidates.length === 0) {
+        console.log(`[DEBUG_GEMINI] No candidates found in DB.`);
+        return [];
+    }
 
     // 2. AI Reasoning Engine
     let matchResults: MatchCandidate[] = [];
@@ -197,18 +232,25 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
         });
 
         if (text) {
-            const data = JSON.parse(cleanJSON(text));
-            matchResults = data.matches || [];
-            usedAI = true;
+            console.log(`[DEBUG_GEMINI] 📥 Raw AI Response:`, text.substring(0, 100) + "...");
+            const cleanText = cleanJSON(text);
+            try {
+                const data = JSON.parse(cleanText);
+                matchResults = data.matches || [];
+                console.log(`[DEBUG_GEMINI] ✅ Parsed ${matchResults.length} matches.`);
+                usedAI = true;
+            } catch (jsonErr) {
+                console.error(`[DEBUG_GEMINI] 💥 JSON Parse Error:`, jsonErr, `\nCleaned Text:`, cleanText);
+            }
         }
     } catch (e) {
-        console.error("[RETRIVA_AI] Logic Error:", e);
+        console.error("[DEBUG_GEMINI] Logic Error in findSmartMatches:", e);
     }
 
     // 3. Fallback (Only if AI completely failed)
     if (!usedAI) {
         // Simple keyword fallback
-        console.log("Switching to basic keyword fallback");
+        console.warn("[DEBUG_GEMINI] ⚠️ Switching to basic keyword fallback");
         matchResults = candidates
             .map(c => {
                 let score = 0;
@@ -250,6 +292,7 @@ export const instantImageCheck = async (base64Image: string): Promise<{
     if (!text) return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Offline" };
     return JSON.parse(cleanJSON(text));
   } catch (e) {
+    console.error("[DEBUG_GEMINI] Safety Check Failed:", e);
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
@@ -272,6 +315,7 @@ export const detectRedactionRegions = async (base64Image: string): Promise<numbe
     const data = JSON.parse(cleanJSON(text));
     return data.regions || [];
   } catch (e) {
+    console.error("[DEBUG_GEMINI] Redaction Failed:", e);
     return [];
   }
 };
@@ -319,6 +363,7 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
         distinguishingFeatures: parsed.distinguishingFeatures || []
     };
   } catch (e) {
+    console.error("[DEBUG_GEMINI] Extraction Failed:", e);
     return { 
       title: "", category: ItemCategory.OTHER, tags: [], 
       color: "", brand: "", condition: "", distinguishingFeatures: [] 
@@ -429,6 +474,7 @@ export const analyzeItemDescription = async (
         } as any;
 
     } catch (e) {
+        console.error("[DEBUG_GEMINI] Description Analysis Failed:", e);
         return { 
             isViolating: false, isPrank: false, category: ItemCategory.OTHER, 
             title: title || "Item", description, distinguishingFeatures: [], summary: "", tags: [], faceStatus: 'NONE'
@@ -495,6 +541,7 @@ export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promis
     if (!text) throw new Error("No comparison result");
     return JSON.parse(cleanJSON(text));
   } catch (e) {
+    console.error("[DEBUG_GEMINI] Compare Failed:", e);
     return {
         confidence: 0,
         explanation: "AI Comparison Service currently overloaded. Please review manually.",
