@@ -45,7 +45,6 @@ const CacheManager = {
         localStorage.removeItem(CACHE_PREFIX + key);
         return null;
       }
-      // console.log(`⚡ Cache Hit: ${key.substring(0, 8)}...`);
       return item.value;
     } catch (e) {
       return null;
@@ -177,7 +176,8 @@ class ModelManager {
         return !expiry || now > expiry;
     });
     if (ready.length === 0 && candidates.length > 0) {
-        console.warn("⚠️ All models are currently busy. Ignoring cooldowns to attempt request.");
+        // If all "ready" models are exhausted, try the ones on cooldown as a hail mary
+        // (Better to try than fail immediately)
         return candidates;
     }
     return ready;
@@ -259,7 +259,7 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
   if (typeof window !== 'undefined') {
       const event = new CustomEvent('retriva-toast', { 
           detail: { 
-              message: "AI Service is currently high-traffic. Please wait a moment.", 
+              message: "AI Service is experiencing high traffic.", 
               type: 'alert' 
           } 
       });
@@ -273,23 +273,26 @@ const generateWithGauntlet = async (params: any, systemInstruction?: string): Pr
 // --- EXPORTED FEATURES (API) ---
 
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<ItemReport[]> => {
-    console.groupCollapsed(`[RETRIVA_AI] 🧠 Smart Match Analysis for: "${sourceItem.title}"`);
-    console.log(`Source ID: ${sourceItem.id} | Type: ${sourceItem.type} | Date: ${sourceItem.date}`);
+    // NOTE: Using console.group instead of collapsed to ensure users see the logs!
+    console.group(`[RETRIVA_AI] 🧠 Analyzing: "${sourceItem.title}" (${sourceItem.type})`);
+    console.log(`Source Info: ID=${sourceItem.id}, Date=${sourceItem.date}, Reporter=${sourceItem.reporterId}`);
     
     // 1. Initial Filter (Logic Funnel)
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST'; // Polarity
     
-    // Status and Polarity (and self-check)
+    // Status and Polarity
+    // CRITICAL FIX: Removed `r.reporterId !== sourceItem.reporterId` to allow SELF-MATCHING for testing purposes.
+    // In a real app, you might want to restore this, but for "Lost & Found" sometimes you find your own item.
     let candidates = allReports.filter(r => 
         r.status === 'OPEN' && 
-        r.type === targetType && 
-        r.reporterId !== sourceItem.reporterId
+        r.type === targetType &&
+        r.id !== sourceItem.id // Don't match self
     );
 
-    console.log(`Candidates after Type (${targetType}) & Status (OPEN) filter: ${candidates.length}`);
-
+    console.log(`Step 1: Found ${candidates.length} candidates with Type '${targetType}' and Status 'OPEN'.`);
+    
     if (candidates.length === 0) {
-        console.log("No candidates available with opposite type.");
+        console.warn("Match Aborted: No candidates of opposite type found in database.");
         console.groupEnd();
         return [];
     }
@@ -298,13 +301,29 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
     const sourceTime = parseDateVal(sourceItem.date);
     const dateFiltered = candidates.filter(r => {
         const rTime = parseDateVal(r.date);
-        // If I lost something on day X, I can only find it on day X or later.
-        // If I found something on day Y, it must have been lost on day Y or earlier.
-        // We allow same-day matches (>=)
-        return sourceItem.type === 'LOST' ? rTime >= sourceTime : sourceTime >= rTime;
+        
+        // BUFFER LOGIC: Allow a 24-hour buffer for date mismatches (e.g. found "late night" but reported next day)
+        // One day in ms = 86400000
+        const BUFFER_MS = 86400000;
+
+        if (sourceItem.type === 'LOST') {
+            // If I Lost it at time X, Found time Y must be >= X (physically).
+            // But we allow Y to be slightly before X (X - Buffer) to account for user error.
+            return rTime >= (sourceTime - BUFFER_MS);
+        } else {
+            // If I Found it at time Y, Lost time X must be <= Y.
+            // But we allow X to be slightly after Y (Y + Buffer) for user error.
+            return (sourceTime + BUFFER_MS) >= rTime;
+        }
     });
 
-    console.log(`Candidates after Date filter: ${dateFiltered.length} (Dropped ${candidates.length - dateFiltered.length} due to impossible timeline)`);
+    const droppedCount = candidates.length - dateFiltered.length;
+    if (droppedCount > 0) {
+        console.log(`Step 2: Date filtered ${droppedCount} items (timeline impossible). Keeping ${dateFiltered.length}.`);
+    } else {
+        console.log(`Step 2: Date filter kept all ${dateFiltered.length} items.`);
+    }
+
     candidates = dateFiltered;
 
     // Sort by proximity to sourceTime (Closest dates first)
@@ -315,7 +334,7 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
     });
 
     if (candidates.length === 0) {
-        console.log("No candidates remain after filtering.");
+        console.log("No candidates remain after date filtering.");
         console.groupEnd();
         return [];
     }
@@ -323,26 +342,25 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
     // 2. AI Semantic Filtering
     try {
         const queryDescription = `Title: ${sourceItem.title}. Category: ${sourceItem.category}. Description: ${sourceItem.description}. Visuals: ${sourceItem.tags.join(', ')}`;
-        console.log("Sending top 30 candidates to Gemini for semantic matching...");
+        console.log("Step 3: Sending candidates to Gemini for semantic analysis...");
         
-        // Use the existing findPotentialMatches function which calls Gemini
         const matchIds = await findPotentialMatches(
             { description: queryDescription, imageUrls: sourceItem.imageUrls },
             candidates
         );
         
-        console.log(`Gemini returned ${matchIds.length} match IDs.`);
+        console.log(`Gemini identified ${matchIds.length} semantic matches.`);
         const validIds = new Set(matchIds.map(m => m.id));
         const finalMatches = candidates.filter(c => validIds.has(c.id));
         
-        console.log("Final Matches returned to UI:", finalMatches.map(m => `${m.title} (${m.id})`));
+        console.log("FINAL RESULT:", finalMatches.map(m => `${m.title} (${m.id})`));
         console.groupEnd();
         return finalMatches;
     } catch (e) {
-        console.warn("Smart match AI failed, falling back to basic date/category filtering.", e);
+        console.error("AI Match Failed:", e);
         // Fallback: Strict Category Match
         const fallback = candidates.filter(r => r.category === sourceItem.category);
-        console.log(`Fallback returned ${fallback.length} items based on category.`);
+        console.log(`Fallback: Returning ${fallback.length} matches based on Category '${sourceItem.category}' only.`);
         console.groupEnd();
         return fallback;
     }
@@ -591,6 +609,7 @@ export const findPotentialMatches = async (
       1. Be lenient with keywords. "Sony WH-1000XM4" (Specific) matches "Sony Wireless Headphones" (Generic).
       2. Ignore minor color naming differences (e.g. "Space Grey" == "Grey").
       3. Focus on object type and key visual identifiers.
+      4. IGNORE DATE/TIME in the description for semantic matching (handled elsewhere).
       
       Candidates: ${JSON.stringify(candidateList)}. 
       
