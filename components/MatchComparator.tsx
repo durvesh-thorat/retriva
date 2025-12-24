@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { ItemReport } from '../types';
 import { compareItems, ComparisonResult, getMatchTier } from '../services/geminiService';
@@ -151,7 +150,6 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                    Gemini Vision <span className="text-[#4285F4]">Processing</span>
                 </h2>
                 <div className="h-6 overflow-hidden flex justify-center items-center gap-2">
-                   <span className="text-xs font-mono text-[#4285F4]">{`[${loadingStep + 1}/${LOADING_STEPS.length}]`}</span>
                    <p className="text-sm font-medium text-slate-400 animate-slide-up key={loadingStep}">
                       {LOADING_STEPS[loadingStep]}
                    </p>
