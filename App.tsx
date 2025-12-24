@@ -626,7 +626,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="flex flex-col">
                      <span className="block font-black text-2xl tracking-tighter leading-none text-slate-900 dark:text-white">RETRIVA</span>
-                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Campus Route & Connect</span>
+                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Traces Lead to Retrival</span>
                   </div>
                 </div>
               </div>
