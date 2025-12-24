@@ -1,8 +1,5 @@
-
 {
   "name": "RETRIVA",
   "description": "A smart campus lost and found application powered by Gemini AI to automatically categorize and match lost items.",
-  "requestFramePermissions": [
-    "camera"
-  ]
+  "requestFramePermissions": []
 }

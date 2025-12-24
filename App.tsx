@@ -500,8 +500,9 @@ const App: React.FC = () => {
 
   const unreadMessageCount = chats.reduce((acc, chat) => {
     if (!user) return acc;
-    const count = chat.messages.filter(m => m.senderId !== user.id && m.status !== 'read').length;
-    return acc + count;
+    // Only count as unread if I was NOT the last sender.
+    if (chat.lastSenderId && chat.lastSenderId === user.id) return acc;
+    return acc + (chat.unreadCount || 0);
   }, 0);
 
   // --- MAIN APP CONTENT (Authenticated) ---
@@ -626,7 +627,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="flex flex-col">
                      <span className="block font-black text-2xl tracking-tighter leading-none text-slate-900 dark:text-white">RETRIVA</span>
-                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Traces Lead to Retrival</span>
+                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">traces lead to retrival</span>
                   </div>
                 </div>
               </div>

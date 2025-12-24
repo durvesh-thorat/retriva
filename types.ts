@@ -103,6 +103,7 @@ export interface Chat {
   messages: Message[];
   lastMessage: string;
   lastMessageTime: number;
+  lastSenderId?: string; // Added to track who sent the last message for notifications
   unreadCount: number;
   isBlocked?: boolean;
   blockedBy?: string;

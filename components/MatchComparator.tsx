@@ -11,6 +11,17 @@ interface MatchComparatorProps {
   onContact: () => void;
 }
 
+const LOADING_STEPS = [
+  "Initializing Gemini Vision 3.0 context...",
+  "Vectorizing visual artifacts (1024-dim)...",
+  "Isolating item subject from background noise...",
+  "Extracting semantic features (Brand, Wear, Specs)...",
+  "Comparing optical character recognition (OCR) data...",
+  "Calculating cosine similarity of embeddings...",
+  "Cross-referencing spatio-temporal metadata...",
+  "Finalizing match confidence score..."
+];
+
 const SafeImage = ({ src, alt }: { src?: string, alt?: string }) => {
   const [error, setError] = useState(false);
   if (src && !error) {
@@ -62,7 +73,7 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
   useEffect(() => {
     if (loading) {
       const interval = setInterval(() => {
-        setLoadingStep(prev => (prev + 1) % 4);
+        setLoadingStep(prev => (prev + 1) % LOADING_STEPS.length);
       }, 800);
       return () => clearInterval(interval);
     }
@@ -138,19 +149,17 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">
                    Gemini Vision <span className="text-[#4285F4]">Processing</span>
                 </h2>
-                <div className="h-6 overflow-hidden">
+                <div className="h-6 overflow-hidden flex justify-center items-center gap-2">
+                   <span className="text-xs font-mono text-[#4285F4]">{`[${loadingStep + 1}/${LOADING_STEPS.length}]`}</span>
                    <p className="text-sm font-medium text-slate-400 animate-slide-up">
-                      {loadingStep === 0 && "Analyzing semantic features..."}
-                      {loadingStep === 1 && "Comparing visual vectors..."}
-                      {loadingStep === 2 && "Validating metadata..."}
-                      {loadingStep === 3 && "Calculating match probability..."}
+                      {LOADING_STEPS[loadingStep]}
                    </p>
                 </div>
              </div>
           ) : (
              <>
                 {/* LEFT PANEL: VISUAL & DATA COMPARISON */}
-                <div className="w-full md:w-[60%] h-full flex flex-col border-b md:border-b-0 md:border-r border-white/10 bg-[#0F0F0F]/50 relative z-10">
+                <div className="w-full md:w-[60%] flex-1 md:h-full flex flex-col border-b md:border-b-0 md:border-r border-white/10 bg-[#0F0F0F]/50 relative z-10 min-h-0">
                    
                    {/* Header */}
                    <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 shrink-0">
@@ -209,7 +218,7 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                 </div>
 
                 {/* RIGHT PANEL: AI VERDICT */}
-                <div className="w-full md:w-[40%] h-full flex flex-col bg-[#0A0A0A] relative overflow-hidden z-10">
+                <div className="w-full md:w-[40%] flex-1 md:h-full flex flex-col bg-[#0A0A0A] relative overflow-hidden z-10 min-h-0">
                    
                    {/* Background Gradient Mesh */}
                    <div className="absolute top-0 right-0 w-full h-[400px] bg-gradient-to-b from-[#4285F4]/5 to-transparent pointer-events-none"></div>

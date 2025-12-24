@@ -193,10 +193,11 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
       await messagesRef.add(msgData);
 
       const chatRef = db.collection('chats').doc(activeChatId);
-      // Increment unread count for the recipient. 
+      // Increment unread count for the recipient and set myself as last sender
       await chatRef.update({
         lastMessage: attachment ? (attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : textToSend,
         lastMessageTime: timestamp,
+        lastSenderId: user.id, // Track who sent it so we know who the unread count is for
         deletedIds: [],
         unreadCount: FieldValue.increment(1) 
       });
@@ -288,6 +289,9 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
         <div className="flex-1 overflow-y-auto p-3">
           {filteredChats.map(chat => {
+            // Only show unread count if I am NOT the last sender
+            const showUnread = chat.unreadCount > 0 && chat.lastSenderId !== user.id;
+
             return (
                 <div 
                 key={chat.id}
@@ -323,7 +327,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                         ) : (
                         chat.lastMessage
                         )}
-                        {chat.unreadCount > 0 && activeChatId !== chat.id && (
+                        {showUnread && activeChatId !== chat.id && (
                            <span className="ml-auto w-4 h-4 rounded-full bg-brand-violet text-white text-[9px] font-bold flex items-center justify-center">
                              {chat.unreadCount}
                            </span>
