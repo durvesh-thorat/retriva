@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, Home } from 'lucide-react';
 import ReportDetails from './ReportDetails';
 import { parseSearchQuery, findSmartMatches } from '../services/geminiService';
 
@@ -87,14 +87,14 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onClick }) => {
   );
 };
 
-// --- AI DISCOVERY HUB (formerly RecoveryConsole) ---
+// --- AI DISCOVERY HUB ---
 const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: ItemReport[], onCompare: any }) => {
   const myOpenLostReports = useMemo(() => reports.filter(r => r.reporterId === user.id && r.status === 'OPEN' && r.type === ReportType.LOST), [reports, user.id]);
   const [selectedItem, setSelectedItem] = useState<ItemReport | null>(null);
   
-  // States: idle, scanning, results, error
+  // States: idle, scanning, results
   const [scanState, setScanState] = useState<'idle' | 'scanning' | 'complete'>('idle');
-  const [matches, setMatches] = useState<{ report: ItemReport, confidence: number }[]>([]);
+  const [matches, setMatches] = useState<{ report: ItemReport, confidence: number, isOffline: boolean }[]>([]);
 
   useEffect(() => {
     if (myOpenLostReports.length > 0 && !selectedItem) {
@@ -121,7 +121,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
     }
   };
 
-  if (myOpenLostReports.length === 0) return null; // Don't show if user has no lost items
+  if (myOpenLostReports.length === 0) return null; 
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[500px] animate-fade-in mb-12">
@@ -169,7 +169,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                     </div>
                     <div>
                         <h3 className="text-sm font-bold text-white leading-none">AI Discovery Hub</h3>
-                        <p className="text-[10px] text-slate-500 font-mono mt-1">GEMINI CASCADE // ONLINE</p>
+                        <p className="text-[10px] text-slate-500 font-mono mt-1">GEMINI 3.0 // ACTIVE</p>
                     </div>
                 </div>
                 
@@ -222,7 +222,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                         </div>
                         <div className="mt-8 space-y-2 text-center">
                             <div className="text-indigo-400 font-mono text-xs animate-pulse">ANALYZING VECTORS...</div>
-                            <div className="text-slate-500 font-mono text-[10px]">Cycling models: Gemini 2.0 Flash → Lite</div>
+                            <div className="text-slate-500 font-mono text-[10px]">Processing visual & semantic data</div>
                         </div>
                     </div>
                 )}
@@ -242,7 +242,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full overflow-y-auto pr-2 custom-scrollbar max-h-full content-start">
-                                {matches.map(({ report, confidence }) => (
+                                {matches.map(({ report, confidence, isOffline }) => (
                                     <div key={report.id} className="bg-slate-800/50 border border-white/10 rounded-xl p-3 flex gap-3 hover:bg-slate-800 transition-colors group">
                                         <div className="w-20 h-20 bg-slate-900 rounded-lg overflow-hidden shrink-0 relative border border-white/5">
                                             {report.imageUrls[0] && <img src={report.imageUrls[0]} className="w-full h-full object-cover" />}
@@ -251,7 +251,14 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                                             </div>
                                         </div>
                                         <div className="flex-1 min-w-0 flex flex-col">
-                                            <h4 className="text-sm font-bold text-white truncate">{report.title}</h4>
+                                            <div className="flex justify-between items-start">
+                                                <h4 className="text-sm font-bold text-white truncate pr-2">{report.title}</h4>
+                                                {isOffline && (
+                                                  <span title="Offline Match">
+                                                    <WifiOff className="w-3 h-3 text-slate-500" />
+                                                  </span>
+                                                )}
+                                            </div>
                                             <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> {report.location}</p>
                                             <div className="mt-auto pt-2">
                                                 <button 
@@ -308,6 +315,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
     } finally {
       setIsProcessingSearch(false);
     }
+  };
+
+  const handleHomeReset = () => {
+    setActiveTab(ReportType.LOST);
+    setViewStatus('OPEN');
+    setShowMyReports(false);
+    setSearchQuery('');
+    setSelectedReport(null);
   };
 
   return (
@@ -420,6 +435,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
          <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-center gap-4">
             
             <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={handleHomeReset}
+                  className="p-2.5 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+                  title="Dashboard Home (Reset Filters)"
+                >
+                   <Home className="w-5 h-5" />
+                </button>
+
                 <div className="flex p-1 bg-off-white dark:bg-slate-800 rounded-xl shrink-0">
                    <button onClick={() => setActiveTab(ReportType.LOST)} className={`px-4 sm:px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === ReportType.LOST ? 'bg-white dark:bg-slate-700 text-orange-600 shadow-sm' : 'text-slate-500'}`}>Lost</button>
                    <button onClick={() => setActiveTab(ReportType.FOUND)} className={`px-4 sm:px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === ReportType.FOUND ? 'bg-white dark:bg-slate-700 text-teal-600 shadow-sm' : 'text-slate-500'}`}>Found</button>
