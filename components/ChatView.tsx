@@ -20,7 +20,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
-  const [typing, setTyping] = useState(false);
   
   // Enhanced Online/Last Seen State
   const [otherUserOnline, setOtherUserOnline] = useState(false);
@@ -32,7 +31,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const selectedChat = chats.find(c => c.id === activeChatId);
   const isGlobal = selectedChat?.type === 'global';
@@ -44,12 +42,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
   const otherParticipantId = useMemo(() => {
      return selectedChat?.participants.find(p => p !== user.id);
-  }, [selectedChat, user.id]);
-
-  // TYPING INDICATOR LOGIC: Check if ANY other user is typing (Robust for Global & Direct)
-  const isOtherUserTyping = useMemo(() => {
-     if (!selectedChat?.typing) return false;
-     return Object.entries(selectedChat.typing).some(([uid, isTyping]) => uid !== user.id && isTyping === true);
   }, [selectedChat, user.id]);
 
   // 0. Listen to Subcollection Messages
@@ -150,7 +142,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
   };
 
   useEffect(() => {
-    if (allMessages.length > 0 || isOtherUserTyping) {
+    if (allMessages.length > 0) {
       // Auto-scroll if near bottom or if new message just arrived
       const container = scrollContainerRef.current;
       if (container) {
@@ -162,7 +154,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
           scrollToBottom();
       }
     }
-  }, [allMessages.length, activeChatId, isOtherUserTyping]);
+  }, [allMessages.length, activeChatId]);
 
   const handleScroll = () => {
       const container = scrollContainerRef.current;
@@ -172,36 +164,8 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
       }
   };
 
-  // 4. Handle Typing & Cleanup
-  useEffect(() => {
-      // Cleanup typing status when unmounting or switching chats
-      return () => {
-          if (activeChatId && user.id) {
-              db.collection('chats').doc(activeChatId).update({ 
-                  [`typing.${user.id}`]: false 
-              }).catch(() => {});
-          }
-      };
-  }, [activeChatId, user.id]);
-
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setNewMessage(e.target.value);
-      
-      if (!activeChatId) return;
-
-      if (!typing) {
-          setTyping(true);
-          db.collection('chats').doc(activeChatId).update({ [`typing.${user.id}`]: true }).catch(() => {});
-      }
-
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      
-      typingTimeoutRef.current = setTimeout(() => {
-          setTyping(false);
-          if (activeChatId) {
-             db.collection('chats').doc(activeChatId).update({ [`typing.${user.id}`]: false }).catch(() => {});
-          }
-      }, 3000);
   };
 
   const handleSendMessage = async (e?: React.FormEvent, attachment?: Message['attachment']) => {
@@ -210,11 +174,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
     const textToSend = newMessage;
     setNewMessage('');
-    setTyping(false);
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    
-    // Immediately clear typing status on send
-    db.collection('chats').doc(activeChatId).update({ [`typing.${user.id}`]: false }).catch(() => {});
 
     const timestamp = Date.now();
     const msgData: any = {
@@ -239,7 +198,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
         lastMessage: attachment ? (attachment.type === 'image' ? 'Sent a photo' : 'Sent a file') : textToSend,
         lastMessageTime: timestamp,
         deletedIds: [],
-        [`typing.${user.id}`]: false,
         unreadCount: FieldValue.increment(1) 
       });
       
@@ -330,7 +288,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
 
         <div className="flex-1 overflow-y-auto p-3">
           {filteredChats.map(chat => {
-            const isAnyTyping = chat.typing && Object.entries(chat.typing).some(([uid, typing]) => uid !== user.id && typing);
             return (
                 <div 
                 key={chat.id}
@@ -361,9 +318,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                         <span className="text-[10px] font-medium text-slate-400">{formatTime(chat.lastMessageTime)}</span>
                     </div>
                     <p className="text-xs truncate text-slate-500 font-medium flex items-center gap-1">
-                        {isAnyTyping ? (
-                            <span className="text-brand-violet animate-pulse font-bold">Typing...</span>
-                        ) : chat.isBlocked ? (
+                        {chat.isBlocked ? (
                         <span className="text-red-500 flex items-center gap-1"><ShieldBan className="w-3 h-3" /> Blocked</span>
                         ) : (
                         chat.lastMessage
@@ -456,7 +411,7 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                </div>
             </div>
 
-            {/* Messages Area - Updated with Stacking Logic */}
+            {/* Messages Area */}
             <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col relative scroll-smooth">
               
               {allMessages.map((msg, idx) => {
@@ -544,17 +499,6 @@ const ChatView: React.FC<ChatViewProps> = ({ user, onBack, onNotification, chats
                   </React.Fragment>
                 );
               })}
-              
-              {/* Typing Indicator - Only show if OTHER user is typing */}
-              {isOtherUserTyping && (
-                  <div className="flex w-full justify-start mt-4 animate-fade-in">
-                      <div className="bg-white dark:bg-slate-900 px-4 py-3 rounded-[1.25rem] rounded-tl-sm border border-slate-100 dark:border-slate-800 flex gap-1.5 items-center shadow-sm">
-                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce delay-100"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce delay-200"></span>
-                      </div>
-                  </div>
-              )}
               
               <div ref={messagesEndRef} />
               

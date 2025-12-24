@@ -67,10 +67,6 @@ const callPuterAI = async (
     let response;
     
     // 3. Call Puter
-    // If not logged in, this might throw or return null. 
-    // Puter typically handles the UI popup if it's a user interaction context.
-    // If we get a 401 error caught here, we can try to force auth.
-    
     try {
         if (image) {
            response = await puter.ai.chat(fullPrompt, image);
@@ -105,6 +101,53 @@ const callPuterAI = async (
     console.error(`[Puter] AI Error:`, error);
     return null;
   }
+};
+
+// --- FALLBACK LOGIC ---
+const fallbackComparison = (item1: ItemReport, item2: ItemReport): ComparisonResult => {
+     let score = 0;
+     const sim = [];
+     const diff = [];
+     
+     // Category match
+     if (item1.category === item2.category) {
+         score += 20;
+         sim.push("Same Category");
+     } else {
+         diff.push("Different Category");
+     }
+     
+     // Title fuzzy match
+     const t1 = item1.title.toLowerCase();
+     const t2 = item2.title.toLowerCase();
+     if (t1 === t2 || t1.includes(t2) || t2.includes(t1)) {
+         score += 30;
+         sim.push("Title Match");
+     }
+
+     // Description keyword overlap
+     const words1 = new Set(item1.description.toLowerCase().split(/\W+/));
+     const words2 = new Set(item2.description.toLowerCase().split(/\W+/));
+     const intersection = new Set([...words1].filter(x => words2.has(x) && x.length > 3));
+     
+     if (intersection.size > 0) {
+         const wordScore = Math.min(intersection.size * 5, 40);
+         score += wordScore;
+         sim.push(`${intersection.size} shared keywords`);
+     }
+
+     // Date check
+     if (item1.date === item2.date) {
+         score += 10;
+         sim.push("Same Date");
+     }
+
+     return {
+         confidence: Math.min(score, 100),
+         explanation: "Detailed analysis unavailable. Score estimated based on keyword overlap.",
+         similarities: sim,
+         differences: diff
+     };
 };
 
 // --- EXPORTED FEATURES (API) ---
@@ -353,16 +396,46 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
 export const compareItems = async (item1: ItemReport, item2: ItemReport): Promise<ComparisonResult> => {
     try {
          const prompt = `
-            Compare Item A and B. Return JSON { "confidence": number, "explanation": string, "similarities": string[], "differences": string[] }
-            A: ${item1.title} ${item1.description}
-            B: ${item2.title} ${item2.description}
+            ACT AS AN EXPERT FORENSIC ANALYST.
+            COMPARE "Item A" (Lost) and "Item B" (Found).
+            Are they the SAME physical object?
+            
+            Item A: ${item1.title} | ${item1.description} | ${item1.category} | ${item1.location}
+            Item B: ${item2.title} | ${item2.description} | ${item2.category} | ${item2.location}
+            
+            Return JSON: 
+            { 
+               "confidence": number (Integer 0-100, where 100 is identical match), 
+               "explanation": "concise reason", 
+               "similarities": ["point 1", "point 2"], 
+               "differences": ["point 1", "point 2"] 
+            }
          `;
 
-         const text = await callPuterAI(prompt);
+         // Use image from item1 if available to ground the comparison
+         const img = item1.imageUrls?.[0] || item2.imageUrls?.[0];
+         
+         const text = await callPuterAI(prompt, img);
 
          if (!text) throw new Error("No response");
-         return JSON.parse(cleanJSON(text));
+         
+         const result = JSON.parse(cleanJSON(text));
+         
+         // Normalize confidence: 
+         // If AI gives 0.95 (0-1 scale), convert to 95. 
+         // If AI gives 1 (meaning 100% or 1%), assume 100% if it's visually identical, but safe bet is logic check.
+         let conf = result.confidence;
+         if (conf <= 1 && conf > 0) {
+            conf = conf * 100;
+         }
+         
+         return {
+             ...result,
+             confidence: Math.round(conf)
+         };
+
     } catch (e) {
-        return { confidence: 0, explanation: "Comparison unavailable.", similarities: [], differences: [] };
+        console.error("AI Compare Failed, using fallback:", e);
+        return fallbackComparison(item1, item2);
     }
 };
