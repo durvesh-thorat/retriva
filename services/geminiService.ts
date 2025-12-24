@@ -174,17 +174,18 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
     let matchResults: MatchCandidate[] = [];
     let usedAI = false;
     
-    // Use FULL keys so AI understands context
+    // Use FULL keys so AI understands context, including SPECS if available
     const aiCandidates = candidates.map(c => ({ 
         id: c.id, 
         title: c.title, 
         description: c.description,
+        specs: c.specs || {}, // Pass structured data to AI
         location: c.location,
         category: c.category,
         visual_tags: c.tags.join(', ')
     }));
 
-    const sourceData = `TITLE: ${sourceItem.title}. DESC: ${sourceItem.description}. CAT: ${sourceItem.category}. LOC: ${sourceItem.location}. TAGS: ${sourceItem.tags.join(', ')}`;
+    const sourceData = `TITLE: ${sourceItem.title}. DESC: ${sourceItem.description}. CAT: ${sourceItem.category}. SPECS: ${JSON.stringify(sourceItem.specs || {})}. LOC: ${sourceItem.location}.`;
 
     try {
         const fullPrompt = `
@@ -194,7 +195,7 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
           CANDIDATES DATABASE: ${JSON.stringify(aiCandidates)}
           
           INSTRUCTIONS:
-          1. Analyze the semantic meaning. "MacBook" == "Laptop". "Keys" == "Keychain".
+          1. Analyze the semantic meaning AND specific specs (e.g. Serial numbers are definitive).
           2. Ignore minor category mismatches (e.g. Electronics vs Other).
           3. Return a JSON object with a list of matches that have a probability > 40%.
           
@@ -281,22 +282,29 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
   title: string;
   category: ItemCategory;
   tags: string[];
+  specs: Record<string, string>;
   color: string;
-  brand: string;
-  condition: string;
   distinguishingFeatures: string[];
 }> => {
   try {
     const text = await callPuterAI(
-       `Extract Item Details.
-        JSON Output:
-        - title: string
-        - category: string
-        - tags: string[]
-        - color: string
-        - brand: string
-        - condition: string
-        - distinguishingFeatures: string[]`,
+       `Extract strict technical item details.
+        
+        OUTPUT JSON FORMAT:
+        {
+          "title": "Short title",
+          "category": "Electronics" | "Clothing" | "Accessories" | "Stationery" | "ID Cards" | "Other",
+          "color": "Dominant Color",
+          "tags": ["tag1", "tag2"],
+          "specs": {
+             // IF ELECTRONICS: "brand", "model", "serialNumber" (if visible)
+             // IF CLOTHING: "brand", "size" (if visible), "material"
+             // IF ID CARD: "issuer", "type"
+             // IF KEYS: "count", "type" (car/house), "keychain"
+             // OTHERWISE: generic key-value pairs of visible text/data
+          },
+          "distinguishingFeatures": ["scratch on screen", "sticker", "dent"]
+        }`,
         base64Image
     );
     
@@ -307,15 +315,14 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
         title: parsed.title || "",
         category: parsed.category || ItemCategory.OTHER,
         tags: parsed.tags || [],
+        specs: parsed.specs || {},
         color: parsed.color || "",
-        brand: parsed.brand || "",
-        condition: parsed.condition || "",
         distinguishingFeatures: parsed.distinguishingFeatures || []
     };
   } catch (e) {
     return { 
       title: "", category: ItemCategory.OTHER, tags: [], 
-      color: "", brand: "", condition: "", distinguishingFeatures: [] 
+      specs: {}, color: "", distinguishingFeatures: [] 
     };
   }
 };
@@ -323,9 +330,10 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
 export const mergeDescriptions = async (userDistinguishingFeatures: string, visualData: any): Promise<string> => {
     try {
         const text = await callPuterAI(
-          `Write a 2-sentence description for a Lost & Found post based on:
-           User Notes: "${userDistinguishingFeatures}"
-           Visuals: ${JSON.stringify(visualData)}`,
+          `Write a concise, factual description for a Lost & Found report.
+           Focus on identifiers (Brand, Specs, Markings).
+           User Input: "${userDistinguishingFeatures}"
+           AI Visual Data: ${JSON.stringify(visualData)}`,
         );
         return text || userDistinguishingFeatures;
     } catch (e) {
@@ -336,7 +344,13 @@ export const mergeDescriptions = async (userDistinguishingFeatures: string, visu
 export const validateReportContext = async (reportData: any): Promise<{ isValid: boolean, reason: string }> => {
     try {
         const text = await callPuterAI(
-          `Validate Report. Return JSON { "isValid": boolean, "reason": string }. Data: ${JSON.stringify(reportData)}`
+          `Validate Report Logic. 
+           Check for:
+           1. Mismatch (e.g. Title says "Laptop" but Category is "Clothing")
+           2. Vague Location (e.g. "On earth")
+           
+           Return JSON { "isValid": boolean, "reason": string }. 
+           Data: ${JSON.stringify(reportData)}`
         );
         if (!text) return { isValid: true, reason: "" };
         const result = JSON.parse(cleanJSON(text));
@@ -421,38 +435,36 @@ export const compareItems = async (item1: ItemReport, item2: ItemReport): Promis
            DATA SOURCE:
            Item A:
            - Title: "${item1.title}"
-           - Description: "${item1.description}"
            - Category: "${item1.category}"
-           - Location: "${item1.location}"
-           - Color/Brand: "${item1.tags.join(', ')}"
+           - Specs: ${JSON.stringify(item1.specs || {})}
+           - Visual Tags: "${item1.tags.join(', ')}"
            
            Item B:
            - Title: "${item2.title}"
-           - Description: "${item2.description}"
            - Category: "${item2.category}"
-           - Location: "${item2.location}"
-           - Color/Brand: "${item2.tags.join(', ')}"
+           - Specs: ${JSON.stringify(item2.specs || {})}
+           - Visual Tags: "${item2.tags.join(', ')}"
 
            VISUAL EVIDENCE:
            ${imagesToAnalyze.length} images provided.
 
            EXECUTION PLAN:
-           1. TEXT ANALYSIS: Compare textual attributes (Brand, Model, Serial Number). 
+           1. SPEC ANALYSIS: Compare strict specs (e.g. Serial #, Brand, Model). Exact Match = 100%. Mismatch = 0%.
            2. VISUAL ANALYSIS: Inspect images for unique identifiers (scratches, stickers, wear patterns, exact color hue).
            3. EVALUATE: Calculate a confidence score based on the weight of evidence.
            
            SCORING CALIBRATION:
-           - 95-100%: Definitive Match. (e.g. matching serial number, unique sticker, or distinctive damage pattern).
-           - 80-94%: High Probability. (e.g. identical make/model/color, matching description, consistent location).
-           - 50-79%: Plausible. (e.g. same category/color, generic item like "Black Umbrella" with no unique features).
-           - 0-49%: Mismatch. (Different brand, different shape, contradictory features).
+           - 99-100%: Definitive Match (Matching Serial # or unique wear pattern).
+           - 80-94%: High Probability (Identical model + color + no contradictions).
+           - 50-79%: Plausible (Same generic category/color).
+           - 0-49%: Mismatch (Different specs, brand, or shape).
 
            OUTPUT FORMAT (JSON ONLY):
            { 
               "confidence": number (Integer 0-100), 
-              "explanation": "Detailed chain-of-thought reasoning citing specific visual and text evidence.", 
-              "similarities": ["Specific matching feature 1", "Specific matching feature 2"], 
-              "differences": ["Contradiction 1", "Contradiction 2"] 
+              "explanation": "Detailed chain-of-thought reasoning.", 
+              "similarities": ["Sim 1", "Sim 2"], 
+              "differences": ["Diff 1", "Diff 2"] 
            }
         `;
 

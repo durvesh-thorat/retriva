@@ -1,5 +1,4 @@
 
-
 export enum ItemCategory {
   ELECTRONICS = 'Electronics',
   STATIONERY = 'Stationery',
@@ -34,6 +33,7 @@ export interface GeminiAnalysisResult {
   tags: string[];
   description: string;
   distinguishingFeatures: string[];
+  specs?: Record<string, string>; // New structured data
   isPrank: boolean;
   prankReason?: string;
   isEmergency?: boolean; // For "Lost Person" reports
@@ -51,6 +51,7 @@ export interface ItemReport {
   summary?: string; // AI generated short summary
   description: string;
   distinguishingFeatures?: string[];
+  specs?: Record<string, string>; // Stored structured data (e.g. { brand: "Apple", model: "iPhone 13" })
   category: ItemCategory;
   location: string;
   date: string;

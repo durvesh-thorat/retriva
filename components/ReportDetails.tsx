@@ -4,7 +4,7 @@ import { ItemReport, ReportType, User } from '../types';
 import { 
   X, MapPin, Calendar, Tag, Check, Sparkles, Loader2, 
   ArrowRight, Clock, Fingerprint, MessageCircle, ChevronLeft, ChevronRight, 
-  Box, Maximize2, FileText, ScanSearch, ArrowLeftRight, ExternalLink, AlertCircle
+  Box, Maximize2, FileText, ScanSearch, ArrowLeftRight, ExternalLink, AlertCircle, Cpu
 } from 'lucide-react';
 import { findSmartMatches } from '../services/geminiService';
 
@@ -277,10 +277,27 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
                  )}
               </div>
 
+              {/* TECHNICAL SPECS */}
+              {report.specs && Object.keys(report.specs).length > 0 && (
+                <div className="p-5 rounded-2xl bg-indigo-50/20 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900 space-y-3">
+                   <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-1.5">
+                     <Cpu className="w-3 h-3" /> Technical Specs
+                   </h3>
+                   <div className="grid grid-cols-2 gap-4">
+                      {Object.entries(report.specs).map(([key, value]) => (
+                         <div key={key}>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{key}</p>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{value}</p>
+                         </div>
+                      ))}
+                   </div>
+                </div>
+              )}
+
               {/* Description */}
               <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 space-y-2">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <FileText className="w-3 h-3" /> Details
+                  <FileText className="w-3 h-3" /> Description
                 </h3>
                 <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
                    {report.description}
