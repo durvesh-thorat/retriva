@@ -1,6 +1,8 @@
+import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-import { GoogleGenAI } from "@google/genai";
-import { ItemCategory, GeminiAnalysisResult, ItemReport, ReportType } from "../types";
+// Initialize Gemini Client
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- TYPES ---
 export interface ComparisonResult {
@@ -16,36 +18,11 @@ export interface MatchCandidate {
   reason?: string;
 }
 
-// --- CONFIGURATION ---
-
-// PRIORITY CASCADE:
-// 1. Gemini 3.0 Flash: Best reasoning, newest model.
-// 2. Gemini 2.0 Flash: Reliable fallback.
-// 3. Gemini 2.0 Flash Lite: High speed, lower cost, good for retries.
-const MODEL_CASCADE = [
-  'gemini-3-flash-preview',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite-preview-02-05'
-];
-
-const MAX_RETRIES = 3;
-const BASE_DELAY = 2000; // 2 seconds
-
-// --- HELPER: API KEY ---
-const getApiKey = (): string | undefined => {
-  // @ts-ignore
-  const key = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
-  if (!key && typeof process !== 'undefined') {
-    return process.env.VITE_API_KEY || process.env.API_KEY;
-  }
-  return key;
-};
-
 // --- HELPER: ROBUST JSON PARSER ---
 const cleanJSON = (text: string): string => {
   if (!text) return "{}";
-  // Remove Markdown code blocks
-  let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  // Remove Markdown code blocks (case insensitive)
+  let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   
   // Attempt to find the first valid JSON object or array
   const firstBrace = cleaned.indexOf('{');
@@ -69,127 +46,73 @@ const cleanJSON = (text: string): string => {
   return cleaned;
 };
 
-// --- HELPER: SLEEP ---
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// --- THE INTELLIGENT CASCADE RUNNER ---
-// Tries models in sequence with exponential backoff for 429s.
-const runIntelligentCascade = async (params: any, systemInstruction?: string): Promise<string | null> => {
-  const apiKey = getApiKey();
-  
-  if (!apiKey) {
-      console.error("[DEBUG_GEMINI] ❌ API Key is MISSING. Check .env or Vercel settings.");
-      return null;
-  } else {
-      // console.log(`[DEBUG_GEMINI] 🔑 API Key found (Length: ${apiKey.length})`);
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-  
-  for (let i = 0; i < MODEL_CASCADE.length; i++) {
-    const model = MODEL_CASCADE[i];
+// --- HELPER: GEMINI WRAPPER ---
+const callGeminiAI = async (
+  prompt: string, 
+  image?: string, 
+  systemInstruction?: string,
+  model = 'gemini-3-flash-preview' 
+): Promise<string | null> => {
+  try {
+    const parts: any[] = [];
     
-    // Retry logic for specific model
-    for (let attempt = 0; attempt < 2; attempt++) { 
-        try {
-            // Apply delay if it's a retry or secondary model to let quota cool down
-            if (i > 0 || attempt > 0) {
-                const waitTime = BASE_DELAY * Math.pow(1.5, i + attempt);
-                console.log(`[DEBUG_GEMINI] ⏳ Waiting ${waitTime}ms before trying ${model} (Attempt ${attempt+1})...`);
-                await delay(waitTime);
-            }
-
-            const config = { ...params.config };
-            delete config.thinkingConfig; // Safety cleanup
-            
-            if (systemInstruction) {
-                config.systemInstruction = systemInstruction;
-            }
-
-            // Log payload size if images exist
-            if (params.contents?.parts?.length > 1) {
-                const imgPart = params.contents.parts.find((p: any) => p.inlineData);
-                if (imgPart) {
-                    console.log(`[DEBUG_GEMINI] 📤 Sending Image Payload (~${Math.round(imgPart.inlineData.data.length / 1024)}KB) to ${model}`);
-                }
-            }
-
-            const response = await ai.models.generateContent({
-                ...params,
-                model,
-                config
-            });
-
-            if (response.text) {
-                // console.log(`[DEBUG_GEMINI] ✅ Success with ${model}`);
-                return response.text;
-            } else {
-                console.warn(`[DEBUG_GEMINI] ⚠️ ${model} returned empty text.`);
-            }
-        } catch (error: any) {
-            const isQuotaError = error.message?.includes('429') || error.status === 429;
-            const isNotFoundError = error.message?.includes('404') || error.status === 404;
-            const isOverloaded = error.message?.includes('503') || error.status === 503;
-
-            console.error(`[DEBUG_GEMINI] 🛑 Error in ${model} (Attempt ${attempt+1}):`);
-            if (error.response) {
-                 console.error(`   Status: ${error.response.status}`);
-                 console.error(`   Body: ${JSON.stringify(error.response)}`);
-            } else {
-                 console.error(`   Message: ${error.message}`);
-            }
-
-            if (isNotFoundError) {
-                console.warn(`[DEBUG_GEMINI] ⏭️ Model ${model} not found/supported. Skipping to next.`);
-                break; // Don't retry 404s on the same model
-            }
-            
-            if (!isQuotaError && !isOverloaded) {
-                console.warn(`[DEBUG_GEMINI] ⏭️ Non-retriable error. Skipping to next model.`);
-                break; 
-            }
-            // If 429 or 503, loop will retry
+    // Handle Image if present
+    if (image) {
+        // Extract base64 data and mime type
+        // Assume format "data:image/png;base64,..."
+        const match = image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (match) {
+             parts.push({
+                 inlineData: {
+                     mimeType: match[1],
+                     data: match[2]
+                 }
+             });
         }
     }
-  }
-  
-  console.error("[DEBUG_GEMINI] ❌ CRITICAL: All AI models exhausted. Returning null.");
-  return null; 
-};
 
+    parts.push({ text: prompt });
+
+    const config: any = {};
+    if (systemInstruction) {
+        config.systemInstruction = systemInstruction;
+    }
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: model,
+      contents: { parts },
+      config: config
+    });
+
+    return response.text || null;
+
+  } catch (error: any) {
+    console.error(`[Gemini] AI Error (${model}):`, error);
+    return null;
+  }
+};
 
 // --- EXPORTED FEATURES (API) ---
 
 export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemReport[]): Promise<{ report: ItemReport, confidence: number, isOffline: boolean }[]> => {
     
-    console.log(`[DEBUG_GEMINI] 🔍 Starting Smart Match for: ${sourceItem.title}`);
+    console.log(`[Retriva] 🔍 Starting Smart Match via Gemini for: ${sourceItem.title}`);
 
     const targetType = sourceItem.type === 'LOST' ? 'FOUND' : 'LOST';
     
-    // 1. Loose Pre-Filtering (Let AI decide the rest)
-    // We only filter by status and type. We let AI handle category fuzziness (e.g. "Phone" vs "Electronics").
+    // 1. Loose Pre-Filtering
     let candidates = allReports.filter(r => 
         r.status === 'OPEN' && 
         r.type === targetType &&
         r.id !== sourceItem.id
     );
 
-    // Optimize: If too many candidates, take the most recent 30 to prevent context overflow
-    if (candidates.length > 30) {
-        console.log(`[DEBUG_GEMINI] Trimming candidates from ${candidates.length} to 30`);
-        candidates = candidates.slice(0, 30);
-    }
+    if (candidates.length > 40) candidates = candidates.slice(0, 40);
+    if (candidates.length === 0) return [];
 
-    if (candidates.length === 0) {
-        console.log(`[DEBUG_GEMINI] No candidates found in DB.`);
-        return [];
-    }
-
-    // 2. AI Reasoning Engine
     let matchResults: MatchCandidate[] = [];
     let usedAI = false;
     
-    // Minimal Candidate JSON for Token Efficiency
     const aiCandidates = candidates.map(c => ({ 
         id: c.id, 
         t: c.title, 
@@ -203,60 +126,40 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     try {
         const systemPrompt = `
-          You are a Forensic Recovery Agent. Your goal is to match a ${sourceItem.type} item with a list of potential candidates.
-          
+          You are a Forensic Recovery Agent. Match the TARGET ITEM with CANDIDATES.
           RULES:
-          1. **Semantic Matching**: Match meaning, not just words (e.g., "AirPods" == "Earbuds", "MacBook" == "Laptop").
-          2. **Hard Constraints**: Reject if visual attributes contradict (e.g., "Red Case" vs "Blue Case").
-          3. **Soft Constraints**: Allow fuzzy time/location (e.g., "Library" might match "Student Center" if nearby).
-          4. **Confidence**:
-             - 90-100: Almost certain match (Unique ID, very specific visuals).
-             - 70-89: High probability (Strong semantic match, correct location/time).
-             - 40-69: Potential match (Vague description but correct category/context).
-             - 0-39: Ignore.
-
-          INPUT CANDIDATES:
-          ${JSON.stringify(aiCandidates)}
-
-          TARGET ITEM:
-          ${sourceData}
-
-          OUTPUT:
-          Return a JSON object: { "matches": [ { "id": "string", "confidence": number, "reason": "string" } ] }
-          Only include confidence > 40.
+          1. Semantic Matching: "AirPods" == "Earbuds".
+          2. Hard Constraints: Reject if visual attributes contradict (e.g. Red vs Blue).
+          3. Soft Constraints: Allow fuzzy time/location.
+          4. Confidence Score (0-100).
+          
+          OUTPUT JSON: { "matches": [ { "id": "string", "confidence": number, "reason": "string" } ] }
+          Only include confidence > 40. Return ONLY JSON.
         `;
 
-        const text = await runIntelligentCascade({
-            contents: { parts: [{ text: systemPrompt }] },
-            config: { responseMimeType: "application/json" }
-        });
+        const fullPrompt = `INPUT CANDIDATES: ${JSON.stringify(aiCandidates)}\nTARGET ITEM: ${sourceData}`;
+        
+        // Use gemini-3-pro-preview for complex reasoning
+        const text = await callGeminiAI(fullPrompt, undefined, systemPrompt, 'gemini-3-pro-preview');
 
         if (text) {
-            console.log(`[DEBUG_GEMINI] 📥 Raw AI Response:`, text.substring(0, 100) + "...");
             const cleanText = cleanJSON(text);
-            try {
-                const data = JSON.parse(cleanText);
-                matchResults = data.matches || [];
-                console.log(`[DEBUG_GEMINI] ✅ Parsed ${matchResults.length} matches.`);
-                usedAI = true;
-            } catch (jsonErr) {
-                console.error(`[DEBUG_GEMINI] 💥 JSON Parse Error:`, jsonErr, `\nCleaned Text:`, cleanText);
-            }
+            const data = JSON.parse(cleanText);
+            matchResults = data.matches || [];
+            usedAI = true;
         }
     } catch (e) {
-        console.error("[DEBUG_GEMINI] Logic Error in findSmartMatches:", e);
+        console.error("[Gemini] Smart Match Logic Error:", e);
     }
 
-    // 3. Fallback (Only if AI completely failed)
+    // 3. Fallback
     if (!usedAI) {
-        // Simple keyword fallback
-        console.warn("[DEBUG_GEMINI] ⚠️ Switching to basic keyword fallback");
         matchResults = candidates
             .map(c => {
                 let score = 0;
                 if (c.category === sourceItem.category) score += 30;
                 if (c.title.toLowerCase().includes(sourceItem.title.toLowerCase())) score += 40;
-                return { id: c.id, confidence: score, reason: "Keyword Match" };
+                return { id: c.id, confidence: score, reason: "Keyword Fallback" };
             })
             .filter(m => m.confidence > 30);
     }
@@ -277,45 +180,41 @@ export const instantImageCheck = async (base64Image: string): Promise<{
   reason: string;
 }> => {
   try {
-    const base64Data = base64Image.split(',')[1] || base64Image;
-    const text = await runIntelligentCascade({
-      contents: {
-        parts: [
-          { text: `Safety Analysis. Analyze image. Strict Policy: NO GORE, NO NUDITY, NO SELFIES.
-            Return JSON: { "violationType": "GORE"|"NUDITY"|"HUMAN"|"NONE", "isPrank": boolean, "reason": string }` },
-          { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-        ]
-      },
-      config: { responseMimeType: "application/json" }
-    });
+    const text = await callGeminiAI(
+      `Safety Analysis. Strict Policy: NO GORE, NO NUDITY, NO SELFIES.
+       Return JSON: { "violationType": "GORE"|"NUDITY"|"HUMAN"|"NONE", "isPrank": boolean, "reason": string }`,
+       base64Image,
+       undefined,
+       'gemini-3-flash-preview'
+    );
 
     if (!text) return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Offline" };
-    return JSON.parse(cleanJSON(text));
+    const result = JSON.parse(cleanJSON(text));
+    return {
+        faceStatus: result.faceStatus || 'NONE',
+        violationType: result.violationType || 'NONE',
+        isPrank: result.isPrank || false,
+        reason: result.reason || ''
+    };
   } catch (e) {
-    console.error("[DEBUG_GEMINI] Safety Check Failed:", e);
     return { faceStatus: 'NONE', violationType: 'NONE', isPrank: false, reason: "Check unavailable" };
   }
 };
 
 export const detectRedactionRegions = async (base64Image: string): Promise<number[][]> => {
   try {
-    const base64Data = base64Image.split(',')[1] || base64Image;
-    const text = await runIntelligentCascade({
-        contents: {
-            parts: [
-                { text: `Identify bounding boxes [ymin, xmin, ymax, xmax] (scale 0-1000) for: FACES, ID CARDS, CREDIT CARDS, SCREENS WITH PII. 
-                  Return JSON { "regions": [[ymin, xmin, ymax, xmax], ...] }` },
-                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-            ]
-        },
-        config: { responseMimeType: "application/json" }
-    });
+    const text = await callGeminiAI(
+      `Identify bounding boxes [ymin, xmin, ymax, xmax] (scale 0-1000) for: FACES, ID CARDS, CREDIT CARDS, SCREENS WITH PII. 
+       Return JSON { "regions": [[ymin, xmin, ymax, xmax], ...] }`,
+       base64Image,
+       undefined,
+       'gemini-3-flash-preview'
+    );
     
     if (!text) return [];
     const data = JSON.parse(cleanJSON(text));
     return data.regions || [];
   } catch (e) {
-    console.error("[DEBUG_GEMINI] Redaction Failed:", e);
     return [];
   }
 };
@@ -330,27 +229,23 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
   distinguishingFeatures: string[];
 }> => {
   try {
-    const base64Data = base64Image.split(',')[1] || base64Image;
-    const text = await runIntelligentCascade({
-      contents: {
-        parts: [
-          { text: `You are an expert appraiser. Analyze this image for a Lost & Found database.
-            Extract details into JSON:
-            - title: Short descriptive title (e.g. "Black North Face Backpack").
-            - category: Best fit enum (Electronics, Stationery, Clothing, Accessories, ID Cards, Books, Other).
-            - tags: List of visual keywords (e.g. ["zipper", "stickers", "scratch"]).
-            - color: Dominant color.
-            - brand: Brand name if visible (else "Unknown").
-            - condition: "New", "Used", "Damaged".
-            - distinguishingFeatures: List specific unique identifiers (e.g. "Crack on screen", "Batman sticker").` 
-          },
-          { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-        ]
-      },
-      config: { responseMimeType: "application/json" }
-    });
+    // Using gemini-3-pro-preview for higher quality extraction
+    const text = await callGeminiAI(
+       `Expert Appraiser. Extract details for Lost & Found.
+        Output JSON:
+        - title: Short descriptive title.
+        - category: Enum (Electronics, Stationery, Clothing, Accessories, ID Cards, Books, Other).
+        - tags: Visual keywords.
+        - color: Dominant color.
+        - brand: Brand name or "Unknown".
+        - condition: "New", "Used", "Damaged".
+        - distinguishingFeatures: Unique identifiers (scratches, stickers).`,
+        base64Image,
+        undefined,
+        'gemini-3-pro-preview'
+    );
     
-    if (!text) throw new Error("No AI response");
+    if (!text) throw new Error("No response");
     const parsed = JSON.parse(cleanJSON(text));
     
     return {
@@ -363,7 +258,6 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
         distinguishingFeatures: parsed.distinguishingFeatures || []
     };
   } catch (e) {
-    console.error("[DEBUG_GEMINI] Extraction Failed:", e);
     return { 
       title: "", category: ItemCategory.OTHER, tags: [], 
       color: "", brand: "", condition: "", distinguishingFeatures: [] 
@@ -373,18 +267,15 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
 
 export const mergeDescriptions = async (userDistinguishingFeatures: string, visualData: any): Promise<string> => {
     try {
-        const text = await runIntelligentCascade({
-            contents: {
-                parts: [{ text: `
-                  Act as a professional copywriter.
-                  Create a clear, concise description for a Lost/Found item report.
-                  Combine User Notes: "${userDistinguishingFeatures}"
-                  With Visual Data: ${JSON.stringify(visualData)}
-                  
-                  Style: Factual, helpful, easy to read. Max 3 sentences.` 
-                }]
-            }
-        });
+        const text = await callGeminiAI(
+          `Create a concise Lost/Found item description.
+           User Notes: "${userDistinguishingFeatures}"
+           Visual Data: ${JSON.stringify(visualData)}
+           Style: Factual, helpful. Max 3 sentences. Return text only.`,
+           undefined,
+           undefined,
+           'gemini-3-flash-preview'
+        );
         return text || userDistinguishingFeatures;
     } catch (e) {
         return userDistinguishingFeatures;
@@ -393,24 +284,17 @@ export const mergeDescriptions = async (userDistinguishingFeatures: string, visu
 
 export const validateReportContext = async (reportData: any): Promise<{ isValid: boolean, reason: string }> => {
     try {
-        const text = await runIntelligentCascade({
-            contents: {
-                parts: [{ text: `
-                  Review this Lost & Found report for logical consistency.
-                  Data: ${JSON.stringify(reportData)}
-                  
-                  Check for:
-                  1. Gibberish or spam titles.
-                  2. Contradictions (e.g. Title says "Phone" but Category says "Clothing").
-                  3. Abstract locations (e.g. "The Moon", "Nowhere").
-                  
-                  Output JSON: { "isValid": boolean, "reason": string }` 
-                }]
-            },
-            config: { responseMimeType: "application/json" }
-        });
+        const text = await callGeminiAI(
+          `Review Lost & Found report for consistency.
+           Data: ${JSON.stringify(reportData)}
+           Output JSON: { "isValid": boolean, "reason": string }`,
+           undefined,
+           undefined,
+           'gemini-3-flash-preview'
+        );
         if (!text) return { isValid: true, reason: "" };
-        return JSON.parse(cleanJSON(text));
+        const result = JSON.parse(cleanJSON(text));
+        return { isValid: result.isValid ?? true, reason: result.reason || "" };
     } catch (e) {
         return { isValid: true, reason: "" };
     }
@@ -422,131 +306,87 @@ export const analyzeItemDescription = async (
   title: string = ""
 ): Promise<GeminiAnalysisResult> => {
     try {
-        const parts: any[] = [{ text: `
-          Analyze this item report.
-          Title: ${title}
-          Description: ${description}
-          
-          Tasks:
-          1. Detect if this is a PRANK or VIOLATION (Drugs, Weapons, Explicit, Gore).
-          2. Summarize content.
-          3. Extract tags.
-          
-          Output JSON: 
-          {
-            "isViolating": boolean,
-            "violationType": "GORE"|"ANIMAL"|"HUMAN"|"NONE",
-            "violationReason": string,
-            "isPrank": boolean,
-            "category": string,
-            "summary": string,
-            "tags": string[],
-            "distinguishingFeatures": string[]
-          }
-        ` }];
+        const prompt = `
+          Analyze item report: "${title} - ${description}".
+          Tasks: Detect VIOLATION (Drugs, Weapons, Gore), summarize, tag.
+          Output JSON: { "isViolating": boolean, "violationType": string, "violationReason": string, "isPrank": boolean, "category": string, "summary": string, "tags": string[], "distinguishingFeatures": string[] }
+        `;
         
-        base64Images.forEach(img => {
-            const data = img.split(',')[1] || img;
-            // Limit image size payload for this check to avoid 413
-            if (data && data.length < 500000) parts.push({ inlineData: { mimeType: "image/jpeg", data } });
-        });
+        // Pass first image if available
+        const img = base64Images.length > 0 ? base64Images[0] : undefined;
 
-        const text = await runIntelligentCascade({
-            contents: { parts },
-            config: { responseMimeType: "application/json" }
-        });
+        const text = await callGeminiAI(prompt, img, undefined, 'gemini-3-flash-preview');
 
-        if (!text) throw new Error("Cascade failed");
+        if (!text) throw new Error("Failed");
         
-        const resultRaw = JSON.parse(cleanJSON(text));
+        const result = JSON.parse(cleanJSON(text));
         return {
-            isViolating: resultRaw.isViolating || false,
-            violationType: resultRaw.violationType || 'NONE',
-            violationReason: resultRaw.violationReason || '',
-            isPrank: resultRaw.isPrank || false,
-            category: resultRaw.category || ItemCategory.OTHER,
+            category: result.category || ItemCategory.OTHER,
             title: title,
+            summary: result.summary || description,
+            tags: result.tags || [],
             description: description,
-            summary: resultRaw.summary || description.substring(0, 50),
-            tags: resultRaw.tags || [],
-            distinguishingFeatures: resultRaw.distinguishingFeatures || [],
-            faceStatus: 'NONE'
-        } as any;
-
+            distinguishingFeatures: result.distinguishingFeatures || [],
+            isPrank: result.isPrank || false,
+            prankReason: result.violationReason,
+            faceStatus: 'NONE',
+            isViolating: result.isViolating || false,
+            violationType: result.violationType,
+            violationReason: result.violationReason
+        };
     } catch (e) {
-        console.error("[DEBUG_GEMINI] Description Analysis Failed:", e);
-        return { 
-            isViolating: false, isPrank: false, category: ItemCategory.OTHER, 
-            title: title || "Item", description, distinguishingFeatures: [], summary: "", tags: [], faceStatus: 'NONE'
-        } as any;
+        // Fallback
+        return {
+            category: ItemCategory.OTHER,
+            title,
+            summary: description,
+            tags: [],
+            description,
+            distinguishingFeatures: [],
+            isPrank: false,
+            faceStatus: 'NONE',
+            isViolating: false
+        };
     }
 };
 
-export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LOST' | 'FOUND' | 'NONE'; refinedQuery: string }> => {
+export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LOST' | 'FOUND' | 'UNKNOWN', refinedQuery: string }> => {
     try {
-        const text = await runIntelligentCascade({
-            contents: { parts: [{ text: `
-              Analyze user search query: "${query}"
-              Determine intent: Is user looking for something they LOST? Or reporting something FOUND?
-              Extract the core item keywords.
-              
-              Output JSON: { "userStatus": "LOST"|"FOUND"|"NONE", "refinedQuery": string }
-            ` }] },
-            config: { responseMimeType: "application/json" }
-        });
-        if (text) return JSON.parse(cleanJSON(text));
-    } catch(e) {}
-
-    // Heuristic Fallback
-    const lower = query.toLowerCase();
-    if (lower.includes('lost')) return { userStatus: 'LOST', refinedQuery: query.replace('lost', '').trim() };
-    if (lower.includes('found')) return { userStatus: 'FOUND', refinedQuery: query.replace('found', '').trim() };
-    return { userStatus: 'NONE', refinedQuery: query };
+        const text = await callGeminiAI(
+          `Parse search query: "${query}".
+           Determine if user is LOOKING FOR something they lost (userStatus=LOST) or FOUND something (userStatus=FOUND).
+           Extract core keywords.
+           Output JSON: { "userStatus": "LOST"|"FOUND"|"UNKNOWN", "refinedQuery": "string" }`,
+           undefined, 
+           undefined,
+           'gemini-3-flash-preview'
+        );
+        
+        if (!text) throw new Error("No text");
+        const result = JSON.parse(cleanJSON(text));
+        return { userStatus: result.userStatus || 'UNKNOWN', refinedQuery: result.refinedQuery || query };
+    } catch (e) {
+        return { userStatus: 'UNKNOWN', refinedQuery: query };
+    }
 };
 
-export const compareItems = async (itemA: ItemReport, itemB: ItemReport): Promise<ComparisonResult> => {
-  try {
-    const prompt = `
-      Deep Semantic Comparison.
-      ITEM A (Source): ${itemA.title}, ${itemA.description}, Loc: ${itemA.location}, Date: ${itemA.date}
-      ITEM B (Candidate): ${itemB.title}, ${itemB.description}, Loc: ${itemB.location}, Date: ${itemB.date}
-      
-      Task: Determine if these are the SAME physical object.
-      1. Analyze Visual/Physical Description match.
-      2. Analyze Location/Time plausibility.
-      3. Identify contradictions.
-      
-      Output JSON:
-      {
-        "confidence": number (0-100),
-        "explanation": "concise reasoning",
-        "similarities": ["point 1", "point 2"],
-        "differences": ["point 1", "point 2"]
-      }
-    `;
+export const compareItems = async (item1: ItemReport, item2: ItemReport): Promise<ComparisonResult> => {
+    try {
+         const prompt = `
+            COMPARE ITEM A and ITEM B.
+            Item A: ${item1.title}, ${item1.description}, ${item1.category}, Tags: ${item1.tags?.join(', ') || 'None'}
+            Item B: ${item2.title}, ${item2.description}, ${item2.category}, Tags: ${item2.tags?.join(', ') || 'None'}
+            
+            Are they the same physical object?
+            Output JSON: { "confidence": number (0-100), "explanation": "string", "similarities": ["string"], "differences": ["string"] }
+         `;
 
-    const parts: any[] = [{ text: prompt }];
-    
-    const images = [itemA.imageUrls[0], itemB.imageUrls[0]].filter(Boolean);
-    images.forEach(img => {
-      const data = img.split(',')[1];
-      if (data && data.length < 500000) parts.push({ inlineData: { mimeType: "image/jpeg", data } });
-    });
+         // Use gemini-3-pro-preview for comparison reasoning
+         const text = await callGeminiAI(prompt, undefined, undefined, 'gemini-3-pro-preview');
 
-    const text = await runIntelligentCascade({
-       contents: { parts },
-       config: { responseMimeType: "application/json" }
-    });
-    
-    if (!text) throw new Error("No comparison result");
-    return JSON.parse(cleanJSON(text));
-  } catch (e) {
-    console.error("[DEBUG_GEMINI] Compare Failed:", e);
-    return {
-        confidence: 0,
-        explanation: "AI Comparison Service currently overloaded. Please review manually.",
-        similarities: [],
-        differences: []
-    };
-  }
+         if (!text) throw new Error("No response");
+         return JSON.parse(cleanJSON(text));
+    } catch (e) {
+        return { confidence: 0, explanation: "Comparison failed", similarities: [], differences: [] };
+    }
 };

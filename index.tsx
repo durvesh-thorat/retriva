@@ -15,13 +15,11 @@ interface ErrorBoundaryState {
 
 // Error Boundary to catch "White Screen" crashes
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null
-    };
-  }
+  // Explicitly define state property
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null
+  };
 
   public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
@@ -33,8 +31,6 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   render() {
     if (this.state.hasError) {
-      const isApiKeyError = this.state.error?.message?.includes('API Key') || this.state.error?.message?.includes('API_KEY');
-      
       return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white font-sans">
           <div className="max-w-md w-full bg-slate-800 p-8 rounded-3xl border border-slate-700 shadow-2xl text-center">
@@ -43,9 +39,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             </div>
             <h1 className="text-2xl font-black mb-4">Something went wrong</h1>
             <p className="text-slate-400 mb-6 text-sm leading-relaxed">
-              {isApiKeyError 
-                ? "The Gemini API Key is missing. Please add the 'API_KEY' environment variable in your Vercel Project Settings."
-                : this.state.error?.message || "An unexpected error occurred."}
+              {this.state.error?.message || "An unexpected error occurred."}
             </p>
             <button 
               onClick={() => window.location.reload()}
