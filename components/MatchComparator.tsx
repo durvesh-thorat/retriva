@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { ItemReport } from '../types';
-import { compareItems, ComparisonResult } from '../services/geminiService';
-import { X, Sparkles, MessageCircle, Check, AlertTriangle, MapPin, Clock, Tag, ScanLine, Loader2, Fingerprint, Activity, BarChart3 } from 'lucide-react';
+import { compareItems, ComparisonResult, getMatchTier } from '../services/geminiService';
+import { X, Sparkles, MessageCircle, Check, AlertTriangle, MapPin, Clock, Tag, ScanLine, Loader2, Fingerprint, ShieldCheck, HelpCircle } from 'lucide-react';
 
 interface MatchComparatorProps {
   item1: ItemReport;
@@ -14,7 +14,6 @@ interface MatchComparatorProps {
 const SafeImage = ({ src, alt }: { src?: string, alt?: string }) => {
   const [error, setError] = useState(false);
   if (src && !error) {
-    // Changed to object-contain so full item is visible for comparison
     return <img src={src} className="w-full h-full object-contain bg-slate-100 dark:bg-slate-800/50 transition-transform duration-700 hover:scale-110" onError={() => setError(true)} alt={alt} />;
   }
   return (
@@ -71,7 +70,6 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
       setLoading(true);
       try {
         const result = await compareItems(item1, item2);
-        // Default structure if result is missing to prevent crash
         setAnalysis(result || { 
             confidence: 50, 
             explanation: "Could not retrieve full analysis.", 
@@ -86,6 +84,13 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
     };
     runAnalysis();
   }, [item1, item2]);
+
+  const tier = getMatchTier(analysis?.confidence || 0);
+  
+  // Icon Mapping
+  const IconComponent = tier.iconName === 'ShieldCheck' ? ShieldCheck : 
+                       tier.iconName === 'Check' ? Check :
+                       tier.iconName === 'HelpCircle' ? HelpCircle : X;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-8 md:p-12 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
@@ -127,7 +132,7 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                       <p className="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
                          {loadingStep === 0 && "Comparing visual features..."}
                          {loadingStep === 1 && "Verifying timestamps & location..."}
-                         {loadingStep === 2 && "Calculating confidence score..."}
+                         {loadingStep === 2 && "Calculating compatibility..."}
                       </p>
                    </div>
                 ) : (
@@ -159,36 +164,25 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                                <ComparisonRow label="LOCATION" icon={MapPin} val1={item1.location} val2={item2.location} />
                             </div>
                          </div>
-
-                         <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 rounded-xl p-4 border border-indigo-100 dark:border-indigo-900/50">
-                            <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                               <Sparkles className="w-3 h-3" /> AI Summary
-                            </h4>
-                            <p className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed">
-                               {analysis?.explanation}
-                            </p>
-                         </div>
                       </div>
 
-                      {/* Right Panel: Score & Analysis */}
+                      {/* Right Panel: Verdict & Analysis */}
                       <div className="w-full lg:w-[320px] bg-white dark:bg-slate-950 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-800 flex flex-col lg:h-full z-10">
                          
                          <div className="flex-1 lg:overflow-y-auto p-4 sm:p-6">
-                            <div className="mb-6 p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 relative overflow-hidden text-center">
-                               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Match Probability</span>
-                               <div className="flex items-center justify-center gap-1 mb-3">
-                                  <span className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tighter">{Math.round(analysis?.confidence || 0)}%</span>
-                                </div>
-                               <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                                  <div 
-                                    className={`h-full rounded-full transition-all duration-1000 ease-out ${
-                                       (analysis?.confidence || 0) > 80 ? 'bg-gradient-to-r from-emerald-500 to-teal-500' :
-                                       (analysis?.confidence || 0) > 50 ? 'bg-gradient-to-r from-amber-500 to-orange-500' :
-                                       'bg-gradient-to-r from-red-500 to-rose-500'
-                                    }`}
-                                    style={{ width: `${analysis?.confidence || 0}%` }}
-                                  ></div>
+                            
+                            {/* Unified Verdict Card */}
+                            <div className={`mb-6 p-6 rounded-2xl border ${tier.bg} ${tier.border} relative overflow-hidden text-center transition-colors duration-500`}>
+                               <div className="flex items-center justify-center gap-2 mb-3">
+                                   <IconComponent className={`w-5 h-5 ${tier.color}`} />
+                                   <span className={`text-lg font-black uppercase tracking-tight ${tier.color}`}>{tier.label}</span>
                                </div>
+                               
+                               <div className="h-px w-16 bg-current opacity-20 mx-auto mb-3"></div>
+
+                               <p className="text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed text-left">
+                                   {analysis?.explanation}
+                               </p>
                             </div>
 
                             <div className="space-y-5">

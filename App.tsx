@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
@@ -505,29 +506,6 @@ const App: React.FC = () => {
 
   // --- MAIN APP CONTENT (Authenticated) ---
   const renderContent = () => {
-    if (comparingItems) {
-       return (
-         <>
-            <Dashboard 
-              user={user!} 
-              reports={reports} 
-              onNavigate={setView} 
-              onResolve={handleResolveReport} 
-              onDeleteReport={handleDeleteReport}
-              onEditReport={handleEditInit}
-              onCompare={handleCompare}
-              onChatStart={handleChatStart}
-            />
-            <MatchComparator 
-               item1={comparingItems.item1} 
-               item2={comparingItems.item2} 
-               onClose={() => setComparingItems(null)} 
-               onContact={() => { setComparingItems(null); handleChatStart(comparingItems.item2); }}
-            />
-         </>
-       );
-    }
-
     switch (view) {
       case 'DASHBOARD': return (
         <Dashboard 
@@ -586,6 +564,16 @@ const App: React.FC = () => {
       
       {/* GLOBAL MODALS */}
       <AIDisclaimerModal isOpen={showLegal} onClose={() => setShowLegal(false)} />
+
+      {/* MATCH COMPARATOR OVERLAY */}
+      {comparingItems && (
+          <MatchComparator 
+            item1={comparingItems.item1} 
+            item2={comparingItems.item2} 
+            onClose={() => setComparingItems(null)} 
+            onContact={() => { setComparingItems(null); handleChatStart(comparingItems.item2); }}
+          />
+      )}
 
       {/* Hide standard Nav if on Features Page for immersive effect, OR keep it. 
           The design prompt requested a "Brand New Page", implies fullscreen. 

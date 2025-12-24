@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, Home } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, Home, HelpCircle, X, Check } from 'lucide-react';
 import ReportDetails from './ReportDetails';
-import { parseSearchQuery, findSmartMatches } from '../services/geminiService';
+import { parseSearchQuery, findSmartMatches, getMatchTier } from '../services/geminiService';
 
 interface DashboardProps {
   user: User;
@@ -242,35 +242,41 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full overflow-y-auto pr-2 custom-scrollbar max-h-full content-start">
-                                {matches.map(({ report, confidence, isOffline }) => (
-                                    <div key={report.id} className="bg-slate-800/50 border border-white/10 rounded-xl p-3 flex gap-3 hover:bg-slate-800 transition-colors group">
-                                        <div className="w-20 h-20 bg-slate-900 rounded-lg overflow-hidden shrink-0 relative border border-white/5">
-                                            {report.imageUrls[0] && <img src={report.imageUrls[0]} className="w-full h-full object-cover" />}
-                                            <div className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white uppercase backdrop-blur-md ${confidence > 80 ? 'bg-emerald-500/90' : 'bg-amber-500/90'}`}>
-                                                {confidence}% Match
+                                {matches.map(({ report, confidence, isOffline }) => {
+                                    const tier = getMatchTier(confidence);
+                                    return (
+                                        <div key={report.id} className="bg-slate-800/50 border border-white/10 rounded-xl p-3 flex gap-3 hover:bg-slate-800 transition-colors group">
+                                            <div className="w-20 h-20 bg-slate-900 rounded-lg overflow-hidden shrink-0 relative border border-white/5">
+                                                {report.imageUrls[0] && <img src={report.imageUrls[0]} className="w-full h-full object-cover" />}
+                                                <div className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase backdrop-blur-md text-slate-900 ${
+                                                    tier.label === 'Definitive Match' ? 'bg-emerald-400' :
+                                                    tier.label === 'Strong Candidate' ? 'bg-blue-400' : 'bg-amber-400'
+                                                }`}>
+                                                    {tier.label === 'Definitive Match' ? 'Exact' : tier.label === 'Strong Candidate' ? 'Strong' : 'Potential'}
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 min-w-0 flex flex-col">
+                                                <div className="flex justify-between items-start">
+                                                    <h4 className="text-sm font-bold text-white truncate pr-2">{report.title}</h4>
+                                                    {isOffline && (
+                                                      <span title="Offline Match">
+                                                        <WifiOff className="w-3 h-3 text-slate-500" />
+                                                      </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> {report.location}</p>
+                                                <div className="mt-auto pt-2">
+                                                    <button 
+                                                        onClick={() => onCompare(selectedItem!, report)}
+                                                        className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors"
+                                                    >
+                                                        Verify Match
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="flex-1 min-w-0 flex flex-col">
-                                            <div className="flex justify-between items-start">
-                                                <h4 className="text-sm font-bold text-white truncate pr-2">{report.title}</h4>
-                                                {isOffline && (
-                                                  <span title="Offline Match">
-                                                    <WifiOff className="w-3 h-3 text-slate-500" />
-                                                  </span>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> {report.location}</p>
-                                            <div className="mt-auto pt-2">
-                                                <button 
-                                                    onClick={() => onCompare(selectedItem!, report)}
-                                                    className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors"
-                                                >
-                                                    Verify Match
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -337,7 +343,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
           onNavigateToChat={(report) => { onChatStart(report); setSelectedReport(null); }}
           onViewMatch={(r) => setSelectedReport(r)} 
           onCompare={(item1, item2) => {
-             setSelectedReport(null);
+             // We do NOT close the details here. App.tsx will overlay the comparator.
              onCompare(item1, item2);
           }}
         />
@@ -437,7 +443,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
             <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button 
                   onClick={handleHomeReset}
-                  className="p-2.5 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+                  className="p-2.5 rounded-xl border bg-indigo-50 dark:bg-slate-800 border-indigo-200 dark:border-slate-700 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-slate-700 transition-all shadow-sm"
                   title="Dashboard Home (Reset Filters)"
                 >
                    <Home className="w-5 h-5" />
