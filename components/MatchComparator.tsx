@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { ItemReport } from '../types';
 import { compareItems, ComparisonResult, getMatchTier } from '../services/geminiService';
-import { X, Sparkles, MessageCircle, Check, AlertTriangle, MapPin, Clock, Tag, ScanLine, Loader2, Fingerprint, ShieldCheck, HelpCircle } from 'lucide-react';
+import { X, Sparkles, MessageCircle, Check, AlertTriangle, MapPin, Clock, Tag, ScanLine, Loader2, Fingerprint, ShieldCheck, HelpCircle, Bot } from 'lucide-react';
 
 interface MatchComparatorProps {
   item1: ItemReport;
@@ -138,9 +138,10 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                 ) : (
                    <div className="flex flex-col lg:flex-row h-auto lg:h-full">
                       
-                      {/* Left Panel: Visuals & Data */}
-                      <div className="w-full lg:flex-1 lg:overflow-y-auto p-4 sm:p-6">
+                      {/* Left Panel: Visuals & Data & AI Verdict */}
+                      <div className="w-full lg:flex-1 lg:overflow-y-auto p-4 sm:p-6 custom-scrollbar">
                          
+                         {/* Images Grid */}
                          <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-5">
                             {[item1, item2].map((item, idx) => (
                               <div key={idx} className="space-y-2">
@@ -157,32 +158,55 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                             ))}
                          </div>
 
-                         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mb-5">
+                         {/* Details Table */}
+                         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mb-6">
                             <div className="divide-y divide-slate-100 dark:divide-slate-800">
                                <ComparisonRow label="CATEGORY" icon={Tag} val1={item1.category} val2={item2.category} />
                                <ComparisonRow label="TIME" icon={Clock} val1={`${item1.date} ${item1.time}`} val2={`${item2.date} ${item2.time}`} />
                                <ComparisonRow label="LOCATION" icon={MapPin} val1={item1.location} val2={item2.location} />
                             </div>
                          </div>
+
+                         {/* NEW: AI Verdict Card (Below Details) */}
+                         <div className="relative overflow-hidden rounded-2xl border border-indigo-100 dark:border-indigo-900 bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20 p-5 shadow-sm group">
+                            {/* Decorative Sparkle */}
+                            <div className="absolute -top-6 -right-6 w-24 h-24 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                            
+                            <div className="relative z-10">
+                               <div className="flex items-center gap-2 mb-3">
+                                  <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg text-indigo-600 dark:text-indigo-400">
+                                     <Bot className="w-4 h-4" />
+                                  </div>
+                                  <h3 className="text-xs font-black text-indigo-900 dark:text-indigo-100 uppercase tracking-widest">
+                                     Gemini Analysis
+                                  </h3>
+                               </div>
+                               <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                                  {analysis?.explanation}
+                               </p>
+                            </div>
+                         </div>
+
                       </div>
 
-                      {/* Right Panel: Verdict & Analysis */}
+                      {/* Right Panel: Confidence Tier & Lists */}
                       <div className="w-full lg:w-[320px] bg-white dark:bg-slate-950 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-800 flex flex-col lg:h-full z-10">
                          
-                         <div className="flex-1 lg:overflow-y-auto p-4 sm:p-6">
+                         <div className="flex-1 lg:overflow-y-auto p-4 sm:p-6 custom-scrollbar">
                             
-                            {/* Unified Verdict Card */}
-                            <div className={`mb-6 p-6 rounded-2xl border ${tier.bg} ${tier.border} relative overflow-hidden text-center transition-colors duration-500`}>
-                               <div className="flex items-center justify-center gap-2 mb-3">
-                                   <IconComponent className={`w-5 h-5 ${tier.color}`} />
-                                   <span className={`text-lg font-black uppercase tracking-tight ${tier.color}`}>{tier.label}</span>
-                               </div>
-                               
-                               <div className="h-px w-16 bg-current opacity-20 mx-auto mb-3"></div>
-
-                               <p className="text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed text-left">
-                                   {analysis?.explanation}
-                               </p>
+                            {/* Tier Badge at Top */}
+                            <div className={`mb-6 p-6 rounded-2xl border ${tier.bg} ${tier.border} text-center flex flex-col items-center justify-center gap-3 transition-colors duration-500`}>
+                                <div className={`p-3 rounded-full bg-white dark:bg-slate-900 shadow-md ${tier.color}`}>
+                                    <IconComponent className="w-8 h-8" />
+                                </div>
+                                <div>
+                                    <h2 className={`text-xl font-black uppercase tracking-tight ${tier.color} leading-none mb-1`}>
+                                        {tier.label.split(' ')[0]}
+                                    </h2>
+                                    <p className={`text-[10px] font-bold uppercase tracking-widest opacity-70 ${tier.color}`}>
+                                        {tier.label.split(' ').slice(1).join(' ')} Match
+                                    </p>
+                                </div>
                             </div>
 
                             <div className="space-y-5">
