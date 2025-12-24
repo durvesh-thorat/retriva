@@ -190,7 +190,7 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     try {
         const fullPrompt = `
-          COMPARE these items.
+          COMPARE these items using intelligent analysis.
           TARGET: ${sourceData}
           CANDIDATES: ${JSON.stringify(aiCandidates)}
           
@@ -409,40 +409,46 @@ export const compareItems = async (item1: ItemReport, item2: ItemReport): Promis
         if (item2.imageUrls?.[0]) imagesToAnalyze.push(item2.imageUrls[0]);
 
         const prompt = `
-           ACT AS A FORENSIC ANALYST.
-           Task: Compare Item A (Lost) and Item B (Found) to see if they are the SAME exact physical object.
+           You are a highly precise Forensic Object Analyst using Gemini 3.0 Vision capabilities.
            
-           ITEM A (Lost):
-           - Title: ${item1.title}
-           - Desc: ${item1.description}
-           - Category: ${item1.category}
-           - Color/Brand: ${item1.tags.join(', ')}
+           OBJECTIVE:
+           Compare "Item A" (Lost Report) and "Item B" (Found Report) tip-to-tip and determine the probability (0-100%) that they are the EXACT SAME physical object.
+           
+           DATA SOURCE:
+           Item A:
+           - Title: "${item1.title}"
+           - Description: "${item1.description}"
+           - Category: "${item1.category}"
+           - Location: "${item1.location}"
+           - Color/Brand: "${item1.tags.join(', ')}"
+           
+           Item B:
+           - Title: "${item2.title}"
+           - Description: "${item2.description}"
+           - Category: "${item2.category}"
+           - Location: "${item2.location}"
+           - Color/Brand: "${item2.tags.join(', ')}"
 
-           ITEM B (Found):
-           - Title: ${item2.title}
-           - Desc: ${item2.description}
-           - Category: ${item2.category}
-           - Color/Brand: ${item2.tags.join(', ')}
+           VISUAL EVIDENCE:
+           ${imagesToAnalyze.length} images provided.
 
-           INSTRUCTIONS:
-           1. First, compare the Text Descriptions. Do they describe the same make/model?
-           2. Second, compare the IMAGES (if provided). Look for unique scratches, stickers, wear patterns, or exact color matching.
-           3. Ignore the fact that one is "Lost" and one is "Found". Focus on physical identity.
+           EXECUTION PLAN:
+           1. TEXT ANALYSIS: Compare textual attributes (Brand, Model, Serial Number). 
+           2. VISUAL ANALYSIS: Inspect images for unique identifiers (scratches, stickers, wear patterns, exact color hue).
+           3. EVALUATE: Calculate a confidence score based on the weight of evidence.
            
-           SCORING RULES (Start at 0):
-           - Same Category: +10
-           - Identical Title/Brand: +20
-           - Visually Identical (Color, Shape, Model): +40
-           - Matching Unique Feature (Scratch, Sticker): +30
-           - Visual Mismatch (Different Color/Shape): Set Confidence to 10.
-           - Text Mismatch (Different Brand): Set Confidence to 10.
-           
-           OUTPUT JSON ONLY:
+           SCORING CALIBRATION:
+           - 95-100%: Definitive Match. (e.g. matching serial number, unique sticker, or distinctive damage pattern).
+           - 80-94%: High Probability. (e.g. identical make/model/color, matching description, consistent location).
+           - 50-79%: Plausible. (e.g. same category/color, generic item like "Black Umbrella" with no unique features).
+           - 0-49%: Mismatch. (Different brand, different shape, contradictory features).
+
+           OUTPUT FORMAT (JSON ONLY):
            { 
               "confidence": number (Integer 0-100), 
-              "explanation": "concise reason based on visual/text evidence", 
-              "similarities": ["point 1", "point 2"], 
-              "differences": ["point 1", "point 2"] 
+              "explanation": "Detailed chain-of-thought reasoning citing specific visual and text evidence.", 
+              "similarities": ["Specific matching feature 1", "Specific matching feature 2"], 
+              "differences": ["Contradiction 1", "Contradiction 2"] 
            }
         `;
 
@@ -453,14 +459,27 @@ export const compareItems = async (item1: ItemReport, item2: ItemReport): Promis
         
         const result = JSON.parse(cleanJSON(text));
         
-        // Normalize confidence
+        // --- SCORE NORMALIZATION LOGIC ---
         let conf = result.confidence;
-        if (typeof conf === 'string') conf = parseFloat(conf.replace('%', ''));
-        if (typeof conf === 'number' && conf <= 1 && conf > 0) conf = conf * 100;
         
+        // Fix: Some models output "1" to mean "100% / True". 
+        // If score is exactly 1, and the explanation is positive, treat as 100%.
+        if (conf === 1) {
+             conf = 100;
+        } else if (conf < 1 && conf > 0) {
+             // Handle decimal (0.95 -> 95)
+             conf = conf * 100;
+        }
+        
+        // Ensure integer
+        conf = Math.round(conf);
+        
+        // Safety cap
+        if (conf > 100) conf = 100;
+
         return {
             ...result,
-            confidence: Math.round(Math.min(conf, 100))
+            confidence: conf
         };
 
     } catch (e) {
