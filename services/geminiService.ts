@@ -167,35 +167,39 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     if (candidates.length === 0) return [];
 
-    // Filter by Category first to save tokens
-    if (sourceItem.category !== ItemCategory.OTHER) {
-        const strictMatches = candidates.filter(c => c.category === sourceItem.category);
-        if (strictMatches.length > 0) candidates = strictMatches;
-    }
-
-    if (candidates.length > 6) candidates = candidates.slice(0, 6);
+    // Removed strict category filtering to allow for user classification errors (e.g. Electronics vs Accessories)
+    // We limit candidates to top 15 by recency to save tokens
+    if (candidates.length > 15) candidates = candidates.slice(0, 15);
 
     let matchResults: MatchCandidate[] = [];
     let usedAI = false;
     
+    // Use FULL keys so AI understands context
     const aiCandidates = candidates.map(c => ({ 
         id: c.id, 
-        t: c.title, 
-        d: c.description,
-        l: c.location,
-        c: c.category
+        title: c.title, 
+        description: c.description,
+        location: c.location,
+        category: c.category,
+        visual_tags: c.tags.join(', ')
     }));
 
-    const sourceData = `ITEM: ${sourceItem.title}. DESC: ${sourceItem.description}. CAT: ${sourceItem.category}. LOC: ${sourceItem.location}`;
+    const sourceData = `TITLE: ${sourceItem.title}. DESC: ${sourceItem.description}. CAT: ${sourceItem.category}. LOC: ${sourceItem.location}. TAGS: ${sourceItem.tags.join(', ')}`;
 
     try {
         const fullPrompt = `
-          COMPARE these items using intelligent analysis.
-          TARGET: ${sourceData}
-          CANDIDATES: ${JSON.stringify(aiCandidates)}
+          ACT AS A LOST & FOUND MATCHER.
           
-          Calculate match probability (0-100) based on title and description overlap.
-          Return JSON: { "matches": [ { "id": "candidate_id", "confidence": number } ] }
+          TARGET ITEM: ${sourceData}
+          CANDIDATES DATABASE: ${JSON.stringify(aiCandidates)}
+          
+          INSTRUCTIONS:
+          1. Analyze the semantic meaning. "MacBook" == "Laptop". "Keys" == "Keychain".
+          2. Ignore minor category mismatches (e.g. Electronics vs Other).
+          3. Return a JSON object with a list of matches that have a probability > 40%.
+          
+          JSON FORMAT: 
+          { "matches": [ { "id": "candidate_id", "confidence": number } ] }
         `;
         
         const text = await callPuterAI(fullPrompt);
@@ -473,6 +477,14 @@ export const compareItems = async (item1: ItemReport, item2: ItemReport): Promis
         
         // Ensure integer
         conf = Math.round(conf);
+        
+        // --- LOGIC SAFETY NET ---
+        // If texts are highly similar (Jaccard > 0.8), don't let AI hallucinate a very low score.
+        const textSim = calculateTextSimilarity(item1.title, item2.title);
+        if (textSim > 0.8 && conf < 60) {
+            conf = 75; // Boost to "Plausible" if title is identical but AI was unsure visually
+            result.explanation += " (Score boosted due to exact title match).";
+        }
         
         // Safety cap
         if (conf > 100) conf = 100;

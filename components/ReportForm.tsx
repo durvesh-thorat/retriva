@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ItemReport, ReportType, ItemCategory, User } from '../types';
 import { analyzeItemDescription, instantImageCheck, extractVisualDetails, mergeDescriptions, detectRedactionRegions, validateReportContext } from '../services/geminiService';
@@ -220,6 +221,11 @@ const ReportForm: React.FC<ReportFormProps> = ({ type: initialType, user, initia
              if (category === ItemCategory.OTHER) setCategory(details.category);
              if (tags.length === 0) setTags(details.tags || []);
              setDistinguishingFeatures(details.distinguishingFeatures || []);
+             
+             // CRITICAL FIX: Populate the text input so AI uses these features in description generation
+             if (!distinguishingMarks && details.distinguishingFeatures?.length > 0) {
+                 setDistinguishingMarks(details.distinguishingFeatures.join(', '));
+             }
              
              // Save raw insights for the UI
              setVisualInsights(details);

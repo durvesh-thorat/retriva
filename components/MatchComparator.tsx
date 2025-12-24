@@ -14,7 +14,8 @@ interface MatchComparatorProps {
 const SafeImage = ({ src, alt }: { src?: string, alt?: string }) => {
   const [error, setError] = useState(false);
   if (src && !error) {
-    return <img src={src} className="w-full h-full object-cover transition-transform duration-700 hover:scale-110" onError={() => setError(true)} alt={alt} />;
+    // Changed to object-contain so full item is visible for comparison
+    return <img src={src} className="w-full h-full object-contain bg-slate-100 dark:bg-slate-800/50 transition-transform duration-700 hover:scale-110" onError={() => setError(true)} alt={alt} />;
   }
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400">
@@ -138,9 +139,9 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                          <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-5">
                             {[item1, item2].map((item, idx) => (
                               <div key={idx} className="space-y-2">
-                                <div className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md ring-1 ring-slate-900/5 dark:ring-white/10">
+                                <div className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md ring-1 ring-slate-900/5 dark:ring-white/10 bg-slate-900">
                                    <SafeImage src={item.imageUrls[0]} alt={item.title} />
-                                   <div className="absolute top-0 left-0 right-0 p-1.5 bg-gradient-to-b from-black/60 to-transparent">
+                                   <div className="absolute top-0 left-0 right-0 p-1.5 bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
                                       <span className="inline-block px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-md text-white border border-white/20">
                                         {idx === 0 ? 'Item A' : 'Item B'}
                                       </span>
@@ -177,7 +178,7 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Match Probability</span>
                                <div className="flex items-center justify-center gap-1 mb-3">
                                   <span className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tighter">{Math.round(analysis?.confidence || 0)}%</span>
-                               </div>
+                                </div>
                                <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                                   <div 
                                     className={`h-full rounded-full transition-all duration-1000 ease-out ${
