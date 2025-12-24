@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, Home, HelpCircle, X, Check } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, HelpCircle, X, Check } from 'lucide-react';
 import ReportDetails from './ReportDetails';
 import { parseSearchQuery, findSmartMatches, getMatchTier } from '../services/geminiService';
 
@@ -323,14 +323,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
     }
   };
 
-  const handleHomeReset = () => {
-    setActiveTab(ReportType.LOST);
-    setViewStatus('OPEN');
-    setShowMyReports(false);
-    setSearchQuery('');
-    setSelectedReport(null);
-  };
-
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20">
       {selectedReport && (
@@ -441,14 +433,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
          <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-center gap-4">
             
             <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button 
-                  onClick={handleHomeReset}
-                  className="p-2.5 rounded-xl border bg-indigo-50 dark:bg-slate-800 border-indigo-200 dark:border-slate-700 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-slate-700 transition-all shadow-sm"
-                  title="Dashboard Home (Reset Filters)"
-                >
-                   <Home className="w-5 h-5" />
-                </button>
-
                 <div className="flex p-1 bg-off-white dark:bg-slate-800 rounded-xl shrink-0">
                    <button onClick={() => setActiveTab(ReportType.LOST)} className={`px-4 sm:px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === ReportType.LOST ? 'bg-white dark:bg-slate-700 text-orange-600 shadow-sm' : 'text-slate-500'}`}>Lost</button>
                    <button onClick={() => setActiveTab(ReportType.FOUND)} className={`px-4 sm:px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === ReportType.FOUND ? 'bg-white dark:bg-slate-700 text-teal-600 shadow-sm' : 'text-slate-500'}`}>Found</button>
