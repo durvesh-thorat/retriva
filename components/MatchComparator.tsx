@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ItemReport } from '../types';
-import { compareItems, ComparisonResult } from '../services/geminiService';
+import { compareItems, ComparisonResult, getMatchTier } from '../services/geminiService';
 import { X, Sparkles, MessageCircle, Check, AlertTriangle, MapPin, Clock, Tag, ScanLine, BrainCircuit, Info, Bot } from 'lucide-react';
 
 interface MatchComparatorProps {
@@ -89,6 +89,7 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
   }, [item1, item2]);
 
   const score = analysis?.confidence || 0;
+  const tier = getMatchTier(score);
   
   // Google Colors Helper
   const getScoreColor = (s: number) => {
@@ -105,8 +106,8 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#050505]/90 backdrop-blur-xl animate-fade-in font-sans">
        
-       {/* MAIN CONTAINER - Resized for better fit on laptops */}
-       <div className="relative w-full max-w-5xl h-[85vh] max-h-[700px] flex flex-col md:flex-row rounded-[2rem] bg-[#0F0F0F] shadow-2xl overflow-hidden border border-white/10">
+       {/* MAIN CONTAINER - Resized to max-h-[600px] and max-w-4xl for laptop screens */}
+       <div className="relative w-full max-w-4xl h-[85vh] max-h-[600px] flex flex-col md:flex-row rounded-[2rem] bg-[#0F0F0F] shadow-2xl overflow-hidden border border-white/10">
           
           {/* GOOGLE GLOW BACKGROUND */}
           <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-[#4285F4]/20 blur-[120px] rounded-full pointer-events-none mix-blend-screen"></div>
@@ -243,16 +244,23 @@ const MatchComparator: React.FC<MatchComparatorProps> = ({ item1, item2, onClose
                                />
                             </svg>
                             <div className="absolute flex flex-col items-center">
-                               <span className="text-3xl font-black text-white tracking-tighter" style={{ textShadow: `0 0 20px ${strokeColor}60` }}>
-                                  {score}%
-                               </span>
-                               <span className="text-[8px] font-bold uppercase tracking-widest text-slate-500 mt-0.5">Match</span>
+                               {/* REMOVED PERCENTAGE TEXT */}
+                               <div className="text-center px-2">
+                                  <span className="text-lg font-black text-white leading-tight tracking-tighter block" style={{ textShadow: `0 0 20px ${strokeColor}60` }}>
+                                     {tier.label.split(' ')[0]}
+                                  </span>
+                                  {tier.label.split(' ')[1] && (
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+                                        {tier.label.split(' ')[1]}
+                                    </span>
+                                  )}
+                               </div>
                             </div>
                          </div>
                          
                          <div className="text-center mt-1">
-                             <h3 className="text-base font-bold text-white mb-0.5" style={{ color: strokeColor }}>
-                                {score >= 80 ? 'High Probability' : score >= 50 ? 'Potential Match' : 'Unlikely Match'}
+                             <h3 className="text-sm font-bold text-slate-300">
+                                AI Confidence Analysis
                              </h3>
                          </div>
                       </div>

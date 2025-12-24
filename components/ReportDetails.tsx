@@ -242,12 +242,12 @@ const ReportDetails: React.FC<ReportDetailsProps> = ({ report, allReports, curre
                                            <div key={match.id} className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800 flex items-center gap-3 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
                                                <div className="w-12 h-12 rounded-md bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 relative">
                                                    {match.imageUrls[0] ? <img src={match.imageUrls[0]} className="w-full h-full object-cover" /> : <Box className="w-6 h-6 m-auto text-slate-300" />}
-                                                   {/* Tier Badge */}
+                                                   {/* Tier Badge - NO PERCENTAGE */}
                                                    <div className={`absolute bottom-0 left-0 right-0 text-white text-[7px] font-bold text-center py-0.5 ${
                                                        tier.label === 'Definitive Match' ? 'bg-emerald-500' :
                                                        tier.label === 'Strong Candidate' ? 'bg-blue-500' : 'bg-amber-500'
                                                    }`}>
-                                                      {confidence}%
+                                                      {tier.label === 'Strong Candidate' ? 'Strong' : tier.label.split(' ')[0]}
                                                    </div>
                                                </div>
                                                <div className="flex-1 min-w-0">

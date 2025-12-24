@@ -123,6 +123,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
 
   if (myOpenLostReports.length === 0) return null; 
 
+  // Hide attribute cards when viewing results to prevent overlap
   const showFloatingCards = selectedItem && scanState !== 'complete';
 
   return (
@@ -326,7 +327,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                                       </div>
                                       <div className="min-w-0">
                                           <div className="flex items-center gap-2 mb-0.5">
-                                             <span className="text-[9px] text-emerald-400 font-bold">{confidence}% Match</span>
+                                             <span className={`text-[9px] font-bold ${getMatchTier(confidence).color}`}>{getMatchTier(confidence).label}</span>
                                           </div>
                                           <h4 className="text-xs font-bold text-white line-clamp-1">{report.title}</h4>
                                           <p className="text-[10px] text-slate-500 truncate">{report.location}</p>
