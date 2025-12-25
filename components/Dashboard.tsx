@@ -472,19 +472,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
                  <div className="pt-2 flex justify-center lg:justify-start animate-in slide-in-from-bottom-4 fade-in duration-700 delay-150">
                     <button 
                         onClick={() => onNavigate('FEATURES')}
-                        className="group relative flex items-center gap-3 px-5 py-3 bg-[#0f172a]/50 hover:bg-[#0f172a] border border-white/10 hover:border-white/20 rounded-2xl transition-all duration-300 backdrop-blur-md overflow-hidden"
+                        className="group relative inline-flex p-[2px] rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_0_30px_-5px_rgba(66,133,244,0.6)]"
                     >
-                        {/* RESTORED GOOGLE GRADIENT: Blue, Red, Yellow, Green */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853] opacity-0 group-hover:opacity-30 blur-xl transition-all duration-500"></div>
+                        {/* Animated Gradient Border/Glow Layer */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853] bg-[length:200%_auto] animate-gradient-slow opacity-100 blur-[1px] group-hover:blur-[3px] transition-all duration-500"></div>
                         
-                        <div className="relative flex items-center gap-3">
-                           <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 group-hover:border-white/20 group-hover:bg-white/10 transition-colors shadow-inner">
-                              <Cpu className="w-5 h-5 text-[#4285F4] group-hover:scale-110 transition-transform" />
+                        {/* Inner Content Background */}
+                        <div className="relative flex items-center gap-3 px-6 py-3.5 bg-[#0f172a] rounded-[14px] h-full w-full border border-transparent">
+                           
+                           {/* Icon Box */}
+                           <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 group-hover:border-white/20 transition-all shadow-inner relative z-10">
+                              <Cpu className="w-5 h-5 text-[#4285F4] group-hover:drop-shadow-[0_0_8px_rgba(66,133,244,0.8)] transition-all" />
                            </div>
-                           <div className="text-left">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1 group-hover:text-slate-300">Technical Deep Dive</p>
+
+                           {/* Text */}
+                           <div className="text-left relative z-10">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-[#4285F4] group-hover:to-[#EA4335] transition-all">Technical Deep Dive</p>
                               <p className="text-sm font-bold text-white leading-none">Under the Hood</p>
                            </div>
+                           
+                           {/* Shine Effect */}
+                           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-shimmer pointer-events-none"></div>
                         </div>
                     </button>
                  </div>
