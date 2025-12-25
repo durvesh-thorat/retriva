@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Search, ShieldCheck, LockKeyhole, Cpu, Zap, Activity, MessageCircle, Users } from 'lucide-react';
-import { auth, db, googleProvider } from '../services/firebase';
+import { auth, db, googleProvider, generateUniqueStudentId } from '../services/firebase';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -55,14 +55,25 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
       const userDoc = await userDocRef.get();
 
       if (userDoc.exists) {
-        onLogin(userDoc.data() as User);
+        const existingData = userDoc.data() as User;
+        
+        // BACKFILL: Check if existing user is missing a studentId (Legacy support)
+        if (!existingData.studentId) {
+            const newId = await generateUniqueStudentId();
+            await userDocRef.update({ studentId: newId });
+            existingData.studentId = newId;
+        }
+        
+        onLogin(existingData);
       } else {
-        // Create new user from Google Profile
+        // Create new user with UNIQUE Student ID
+        const uniqueId = await generateUniqueStudentId();
+        
         const newUser: User = {
           id: firebaseUser.uid,
           name: firebaseUser.displayName || name || 'Student',
           email: firebaseUser.email || email || '',
-          studentId: '2025-' + Math.floor(1000 + Math.random() * 9000), 
+          studentId: uniqueId, 
           isVerified: false,
           avatar: firebaseUser.photoURL || ''
         };

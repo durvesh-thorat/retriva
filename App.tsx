@@ -11,9 +11,10 @@ import FeaturesPage from './components/FeaturesPage';
 import AIDisclaimerModal from './components/AIDisclaimerModal';
 import { User, ViewState, ItemReport, ReportType, ItemCategory, AppNotification, Chat, Message } from './types';
 import { MessageCircle, Bell, Moon, Sun, User as UserIcon, Plus, SearchX, Box, Loader2, Home } from 'lucide-react';
+import { findSmartMatches } from './services/geminiService';
 
 // FIREBASE IMPORTS
-import { auth, db, FieldValue } from './services/firebase';
+import { auth, db, FieldValue, generateUniqueStudentId } from './services/firebase';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -60,15 +61,26 @@ const App: React.FC = () => {
         try {
           const userSnap = await userDocRef.get();
           if (userSnap.exists) {
-             setUser(userSnap.data() as User);
+             const userData = userSnap.data() as User;
+             
+             // BACKFILL: Ensure existing users have a unique Student ID
+             if (!userData.studentId) {
+                 const uniqueId = await generateUniqueStudentId();
+                 await userDocRef.update({ studentId: uniqueId });
+                 userData.studentId = uniqueId;
+             }
+
+             setUser(userData);
              // Set Online
              userDocRef.update({ isOnline: true, lastSeen: Date.now() });
           } else {
-             // Basic fallback
+             // Basic fallback creation
+             const uniqueId = await generateUniqueStudentId();
              const fallbackUser = {
                id: firebaseUser.uid,
                name: firebaseUser.displayName || 'User',
                email: firebaseUser.email || '',
+               studentId: uniqueId,
                isVerified: false
              };
              setUser(fallbackUser);
@@ -237,6 +249,83 @@ const App: React.FC = () => {
     setNotifications(prev => [newNotif, ...prev]);
     setToast({ message: message, type: type === 'match' ? 'alert' : type === 'message' ? 'info' : 'success' });
   }, []);
+
+  // PROACTIVE SCAN & ALERT SYSTEM (Client-Side Simulation of Cron Job)
+  useEffect(() => {
+    if (!user) return;
+
+    // Request Notification Permission on login/mount
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const runProactiveScan = async () => {
+       // Only scan if we have reports and user is logged in
+       if (reports.length === 0) return;
+
+       // 1. Get my active lost items
+       const myLostItems = reports.filter(r => r.reporterId === user.id && r.type === ReportType.LOST && r.status === 'OPEN');
+       
+       if (myLostItems.length === 0) return;
+
+       // 2. Get history of notified matches to prevent spam (Persisted in LocalStorage)
+       const notifiedKey = `retriva_notified_matches_${user.id}`;
+       const notified = new Set(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
+       let hasNewNotifications = false;
+
+       for (const lostItem of myLostItems) {
+          // Compare against all other reports (findSmartMatches handles filtering for FOUND types and self-reporting)
+          // Note: This matches the "Cron Job" functionality described in features.
+          try {
+             const matches = await findSmartMatches(lostItem, reports);
+             
+             // "If a potential match (Confidence > 85%) is found..."
+             const urgentMatches = matches.filter(m => m.confidence > 85);
+
+             for (const match of urgentMatches) {
+                 const uniqueMatchId = `${lostItem.id}_${match.report.id}`;
+                 
+                 if (!notified.has(uniqueMatchId)) {
+                     // TRIGGER ALERT
+                     const msg = `Found ${match.confidence}% match for your ${lostItem.title}!`;
+                     
+                     // 1. In-App Notification
+                     addNotification('Proactive Match Alert', msg, 'match', 'DASHBOARD');
+                     
+                     // 2. Browser Push Notification
+                     if (Notification.permission === 'granted') {
+                         new Notification('Retriva Match Found', {
+                             body: msg,
+                             icon: '/icon.png' // Fallback to default if missing
+                         });
+                     }
+
+                     notified.add(uniqueMatchId);
+                     hasNewNotifications = true;
+                 }
+             }
+          } catch (e) {
+             console.error("Proactive scan failed for item", lostItem.id, e);
+          }
+       }
+
+       if (hasNewNotifications) {
+           localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notified)));
+       }
+    };
+
+    // Trigger Scan Logic:
+    // 1. Debounce the scan to run 5s after reports update (Reactive to new data)
+    const scanTimer = setTimeout(runProactiveScan, 5000);
+
+    // 2. Also run periodically (every 2 minutes) as a "Cron" backup to ensure nothing was missed
+    const cronInterval = setInterval(runProactiveScan, 120000);
+
+    return () => {
+        clearTimeout(scanTimer);
+        clearInterval(cronInterval);
+    };
+  }, [user, reports, addNotification]);
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
@@ -728,15 +817,4 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                  <span className="opacity-60">Engineered by</span>
-                 <span className="font-cursive text-lg bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:scale-105 transition-transform cursor-default">
-                   4SCRIPT
-                 </span>
-              </div>
-            </div>
-        </footer>
-      )}
-    </div>
-  );
-};
-
-export default App;
+                 <s

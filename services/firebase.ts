@@ -33,3 +33,39 @@ export const auth = firebase.auth();
 export const db = firebase.firestore();
 export const googleProvider = new firebase.auth.GoogleAuthProvider();
 export const FieldValue = firebase.firestore.FieldValue;
+
+/**
+ * Generates a globally unique Student ID in format YYYY-XXXXXXX.
+ * Checks Firestore to ensure no collision.
+ */
+export const generateUniqueStudentId = async (): Promise<string> => {
+  const currentYear = new Date().getFullYear();
+  let isUnique = false;
+  let newId = '';
+  let attempts = 0;
+  
+  while (!isUnique && attempts < 10) {
+    attempts++;
+    // Generate 6 digit random number
+    const randomNum = Math.floor(100000 + Math.random() * 900000);
+    newId = `${currentYear}-${randomNum}`;
+    
+    try {
+        const snapshot = await db.collection('users').where('studentId', '==', newId).limit(1).get();
+        if (snapshot.empty) {
+            isUnique = true;
+        }
+    } catch (e) {
+        console.error("Error checking student ID uniqueness", e);
+        // In case of error, assume unique to proceed, or break to fallback
+        if (attempts > 5) break; 
+    }
+  }
+  
+  // Final fallback if collision loop persists (extremely unlikely)
+  if (!isUnique) {
+      newId = `${currentYear}-${Date.now().toString().slice(-6)}`; 
+  }
+  
+  return newId;
+};
