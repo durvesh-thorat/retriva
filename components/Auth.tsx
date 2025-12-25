@@ -164,7 +164,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans relative overflow-hidden bg-black">
+    <div className="h-screen w-full flex items-center justify-center p-4 font-sans relative overflow-hidden bg-black">
       
       {/* RICH CHANGING DARK GRADIENT BACKGROUND (Outer) */}
       <div 
@@ -185,10 +185,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
       </div>
 
       {/* FLOATING CARD CONTAINER */}
-      <div className="relative z-10 w-full max-w-6xl flex flex-col lg:flex-row bg-[#080808] rounded-[2rem] shadow-2xl border border-white/5 overflow-hidden ring-1 ring-white/5 min-h-[600px]">
+      {/* Reduced padding, max-width, and adjusted flex layout for better fit */}
+      <div className="relative z-10 w-full max-w-5xl flex flex-col lg:flex-row bg-[#080808] rounded-[2rem] shadow-2xl border border-white/5 overflow-hidden ring-1 ring-white/5 max-h-[90vh]">
         
         {/* LEFT PANEL - HERO SECTION */}
-        <div className="lg:w-5/12 relative p-8 lg:p-12 flex flex-col bg-[#0f172a] overflow-hidden shrink-0 text-white border-b lg:border-b-0 lg:border-r border-white/5">
+        <div className="lg:w-5/12 relative p-8 flex flex-col bg-[#0f172a] overflow-hidden shrink-0 text-white border-b lg:border-b-0 lg:border-r border-white/5">
            
            {/* Base Gradient */}
            <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-[#0f172a] to-black z-0"></div>
@@ -206,8 +207,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
               
               <div className="flex-1 flex flex-col justify-center">
                   {/* Logo Area */}
-                  <div className="mb-10 text-center lg:text-left">
-                    <div className="w-16 h-16 mb-4 filter drop-shadow-xl mx-auto lg:mx-0">
+                  <div className="mb-8 text-center lg:text-left">
+                    <div className="w-14 h-14 mb-3 filter drop-shadow-xl mx-auto lg:mx-0">
                       <svg viewBox="0 0 200 200" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <defs>
                             <linearGradient id="pinGradientAuth" x1="100" y1="25" x2="100" y2="190" gradientUnits="userSpaceOnUse">
@@ -228,47 +229,47 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                       </svg>
                     </div>
                     
-                    <h1 className="text-3xl lg:text-4xl font-black tracking-tighter mb-2 leading-tight bg-gradient-to-br from-white via-slate-200 to-slate-500 bg-clip-text text-transparent">
+                    <h1 className="text-2xl lg:text-3xl font-black tracking-tighter mb-2 leading-tight bg-gradient-to-br from-white via-slate-200 to-slate-500 bg-clip-text text-transparent">
                       RETRIVA
                     </h1>
-                    <p className="text-sm text-slate-400 font-medium leading-relaxed max-w-sm mx-auto lg:mx-0">
+                    <p className="text-xs text-slate-400 font-medium leading-relaxed max-w-sm mx-auto lg:mx-0">
                       The intelligent campus recovery network powered by Gemini 3.0 Vision.
                     </p>
                   </div>
 
                   {/* Features List */}
-                  <div className="space-y-6 w-full max-w-sm lg:max-w-none mx-auto lg:mx-0 mt-4">
+                  <div className="space-y-5 w-full max-w-sm lg:max-w-none mx-auto lg:mx-0 mt-2">
                     <div className="flex gap-4 group">
-                        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-indigo-500/10 group-hover:border-indigo-500/20 transition-all duration-300 shadow-lg">
-                          <BrainCircuit className="w-6 h-6 text-indigo-400" />
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-indigo-500/10 group-hover:border-indigo-500/20 transition-all duration-300 shadow-lg">
+                          <BrainCircuit className="w-5 h-5 text-indigo-400" />
                         </div>
-                        <div className="pt-1">
-                          <h3 className="font-bold text-slate-200 text-sm mb-1 group-hover:text-white transition-colors">Gemini Vision AI</h3>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                        <div className="pt-0.5">
+                          <h3 className="font-bold text-slate-200 text-xs mb-0.5 group-hover:text-white transition-colors">Gemini Vision AI</h3>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">
                             Upload a photo and let our AI automatically handle description and safety checks.
                           </p>
                         </div>
                     </div>
 
                     <div className="flex gap-4 group">
-                        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/10 group-hover:border-emerald-500/20 transition-all duration-300 shadow-lg">
-                          <Zap className="w-6 h-6 text-emerald-400" />
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/10 group-hover:border-emerald-500/20 transition-all duration-300 shadow-lg">
+                          <Zap className="w-5 h-5 text-emerald-400" />
                         </div>
-                        <div className="pt-1">
-                          <h3 className="font-bold text-slate-200 text-sm mb-1 group-hover:text-white transition-colors">Real-time Matching</h3>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                        <div className="pt-0.5">
+                          <h3 className="font-bold text-slate-200 text-xs mb-0.5 group-hover:text-white transition-colors">Real-time Matching</h3>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">
                             Instant notifications when a matching item is found nearby.
                           </p>
                         </div>
                     </div>
 
                     <div className="flex gap-4 group">
-                        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-purple-500/10 group-hover:border-purple-500/20 transition-all duration-300 shadow-lg">
-                          <MessageCircle className="w-6 h-6 text-purple-400" />
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:bg-purple-500/10 group-hover:border-purple-500/20 transition-all duration-300 shadow-lg">
+                          <MessageCircle className="w-5 h-5 text-purple-400" />
                         </div>
-                        <div className="pt-1">
-                          <h3 className="font-bold text-slate-200 text-sm mb-1 group-hover:text-white transition-colors">Secure Connect</h3>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                        <div className="pt-0.5">
+                          <h3 className="font-bold text-slate-200 text-xs mb-0.5 group-hover:text-white transition-colors">Secure Connect</h3>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">
                             Coordinate returns safely with built-in anonymous messaging and blocking.
                           </p>
                         </div>
@@ -277,14 +278,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
               </div>
 
               {/* Footer Stats */}
-              <div className="mt-8 pt-4 border-t border-white/5 flex items-center justify-between text-[9px] font-bold text-slate-600 uppercase tracking-widest shrink-0">
+              <div className="mt-6 pt-3 border-t border-white/5 flex items-center justify-between text-[8px] font-bold text-slate-600 uppercase tracking-widest shrink-0">
                  <div className="flex items-center gap-2">
                     <Activity className="w-3 h-3 text-emerald-500" />
                     <span>System Operational</span>
                  </div>
                  <div className="flex items-center gap-2">
                     <Users className="w-3 h-3 text-indigo-500" />
-                    <span className="text-slate-500">FOR CAMPUS COMMUNITY</span>
+                    <span className="text-slate-500">For Campus community</span>
                  </div>
               </div>
 
@@ -292,55 +293,49 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
         </div>
 
         {/* RIGHT PANEL - Form */}
-        <div className="lg:w-7/12 w-full flex flex-col p-8 lg:p-12 relative bg-[#0c0e14]">
+        <div className="lg:w-7/12 w-full flex flex-col p-6 lg:p-10 relative bg-[#0c0e14] overflow-y-auto custom-scrollbar">
            
-           <div className="flex justify-between items-center mb-8">
+           <div className="flex justify-between items-center mb-6 shrink-0">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
                  <LockKeyhole className="w-3 h-3 text-emerald-500" />
-                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Secure Campus Login</span>
+                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Secure Campus Login</span>
               </div>
-              <div className="hidden sm:flex gap-4 text-[11px] font-bold text-slate-500">
+              <div className="hidden sm:flex gap-4 text-[10px] font-bold text-slate-500">
                  <button onClick={onShowLegal} className="hover:text-white transition-colors">Legal</button>
                  <button onClick={onShowLegal} className="hover:text-white transition-colors">Privacy</button>
               </div>
            </div>
 
-           <div className="flex-1 flex flex-col justify-center max-w-md w-full mx-auto relative z-10">
-              <div className="mb-8">
-                 <h2 className="text-3xl font-black text-white mb-2 tracking-tight">
+           <div className="flex-1 flex flex-col justify-center max-w-sm w-full mx-auto relative z-10">
+              <div className="mb-6 shrink-0">
+                 <h2 className="text-2xl font-black text-white mb-1 tracking-tight">
                     {isLogin ? 'Welcome back' : 'Join Retriva'}
                  </h2>
-                 <p className="text-slate-400 text-sm font-medium">
+                 <p className="text-slate-400 text-xs font-medium">
                     {isLogin ? 'Enter your student credentials to access.' : 'Create your account to start reporting.'}
                  </p>
               </div>
 
               {error && (
-                 <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex flex-col items-start gap-2 animate-in slide-in-from-top-2">
-                    <div className="flex items-center gap-3">
-                       <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-                       <p className="text-sm font-bold text-red-400 leading-snug">{error}</p>
+                 <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex flex-col items-start gap-2 animate-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2">
+                       <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                       <p className="text-xs font-bold text-red-400 leading-snug">{error}</p>
                     </div>
-                    {debugInfo && (
-                        <div className="mt-2 pl-8 text-xs text-red-400/80 font-mono bg-black/20 p-2 rounded w-full">
-                           <p><span className="font-bold text-red-400">Target Project:</span> {debugInfo.projectId}</p>
-                           <p><span className="font-bold text-red-400">Current Domain:</span> {debugInfo.domain}</p>
-                        </div>
-                    )}
                  </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-3">
                  {!isLogin && (
                     <div className="group animate-in slide-in-from-bottom-2 fade-in">
-                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-4">Full Name</label>
+                       <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-4">Full Name</label>
                        <div className="relative">
-                          <UserIcon className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
+                          <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
                           <input 
                              type="text" 
                              value={name}
                              onChange={(e) => setName(e.target.value)}
-                             className="w-full pl-12 pr-6 py-4 bg-[#14161f] border border-slate-800 rounded-2xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
+                             className="w-full pl-11 pr-5 py-3 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-xs"
                              placeholder="John Doe"
                              required
                              disabled={isEmailLoading || isGoogleLoading}
@@ -350,14 +345,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                  )}
 
                  <div className="group">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-4">Student Email</label>
+                    <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-4">Student Email</label>
                     <div className="relative">
-                       <Mail className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
+                       <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
                        <input 
                           type="email" 
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          className="w-full pl-12 pr-6 py-4 bg-[#14161f] border border-slate-800 rounded-2xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
+                          className="w-full pl-11 pr-5 py-3 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-xs"
                           placeholder="student@university.edu"
                           required
                           disabled={isEmailLoading || isGoogleLoading}
@@ -366,17 +361,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                  </div>
 
                  <div className="group">
-                    <div className="flex justify-between items-center mb-2 ml-4 mr-1">
-                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Password</label>
-                       {isLogin && <button type="button" className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Forgot?</button>}
+                    <div className="flex justify-between items-center mb-1.5 ml-4 mr-1">
+                       <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Password</label>
+                       {isLogin && <button type="button" className="text-[9px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Forgot?</button>}
                     </div>
                     <div className="relative">
-                       <Lock className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
+                       <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
                        <input 
                           type={showPassword ? "text" : "password"} 
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          className="w-full pl-12 pr-14 py-4 bg-[#14161f] border border-slate-800 rounded-2xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
+                          className="w-full pl-11 pr-12 py-3 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-xs"
                           placeholder="••••••••"
                           required
                           disabled={isEmailLoading || isGoogleLoading}
@@ -384,10 +379,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                        <button 
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-6 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-indigo-500 transition-colors"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-indigo-500 transition-colors"
                           disabled={isEmailLoading || isGoogleLoading}
                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                        </button>
                     </div>
                  </div>
@@ -395,7 +390,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                  <button 
                     type="submit" 
                     disabled={isEmailLoading || isGoogleLoading}
-                    className="w-full mt-6 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:shadow-indigo-600/40 hover:scale-[1.01] active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:transform-none flex items-center justify-center gap-2 group"
+                    className="w-full mt-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:shadow-indigo-600/40 hover:scale-[1.01] active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:transform-none flex items-center justify-center gap-2 group"
                  >
                     {isEmailLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                        <>
@@ -405,12 +400,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                  </button>
               </form>
 
-              <div className="relative my-8">
+              <div className="relative my-6 shrink-0">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-800"></div>
                 </div>
-                <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest">
-                  <span className="px-4 bg-[#0c0e14] text-slate-500">Or continue with</span>
+                <div className="relative flex justify-center text-[9px] uppercase font-bold tracking-widest">
+                  <span className="px-3 bg-[#0c0e14] text-slate-500">Or continue with</span>
                 </div>
               </div>
 
@@ -418,12 +413,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                 type="button"
                 onClick={handleGoogleLogin}
                 disabled={isEmailLoading || isGoogleLoading}
-                className="relative w-full group"
+                className="relative w-full group shrink-0"
               >
-                <div className={`absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-red-500 to-yellow-500 rounded-2xl opacity-10 blur-lg transition-all duration-500 animate-gradient-slow ${isGoogleLoading ? 'opacity-40' : 'group-hover:opacity-60'}`}></div>
-                <div className="relative w-full py-4 bg-[#202124] rounded-2xl border border-white/10 flex items-center justify-between px-6 overflow-hidden transition-all duration-300 group-hover:scale-[1.02] active:scale-[0.98] shadow-2xl">
-                   <div className="relative w-12 h-12 flex items-center justify-center mr-4 shrink-0 pointer-events-none">
-                      <svg viewBox="0 0 24 24" className="w-8 h-8">
+                <div className={`absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-red-500 to-yellow-500 rounded-xl opacity-10 blur-lg transition-all duration-500 animate-gradient-slow ${isGoogleLoading ? 'opacity-40' : 'group-hover:opacity-60'}`}></div>
+                <div className="relative w-full py-3 bg-[#202124] rounded-xl border border-white/10 flex items-center justify-between px-5 overflow-hidden transition-all duration-300 group-hover:scale-[1.02] active:scale-[0.98] shadow-2xl">
+                   <div className="relative w-8 h-8 flex items-center justify-center mr-3 shrink-0 pointer-events-none">
+                      <svg viewBox="0 0 24 24" className="w-6 h-6">
                          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
@@ -431,17 +426,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                       </svg>
                    </div>
                    <div className="flex-1 text-left">
-                      <div className="text-white font-bold text-lg tracking-tight group-hover:text-indigo-200 transition-colors">
+                      <div className="text-white font-bold text-sm tracking-tight group-hover:text-indigo-200 transition-colors">
                          Sign in with Google
                       </div>
                    </div>
-                   <div className="w-10 h-10 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-slate-400 group-hover:text-white group-hover:bg-white/10 transition-colors z-20">
-                      {isGoogleLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />}
+                   <div className="w-8 h-8 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-slate-400 group-hover:text-white group-hover:bg-white/10 transition-colors z-20">
+                      {isGoogleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />}
                    </div>
                 </div>
               </button>
 
-              <div className="mt-8 pt-6 border-t border-slate-800/50 text-center">
+              <div className="mt-6 pt-4 border-t border-slate-800/50 text-center shrink-0">
                  <p className="text-slate-400 text-xs font-medium">
                     {isLogin ? "New to Retriva?" : "Already have an account?"}
                     <button 
@@ -455,7 +450,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
            </div>
 
            {/* Mobile Footer Links */}
-           <div className="mt-8 sm:hidden flex justify-center gap-6 text-[10px] font-bold text-slate-600 border-t border-slate-800/50 pt-6">
+           <div className="mt-6 sm:hidden flex justify-center gap-6 text-[10px] font-bold text-slate-600 border-t border-slate-800/50 pt-4 shrink-0">
               <button onClick={onShowLegal}>Terms</button>
               <button onClick={onShowLegal}>Privacy</button>
            </div>
