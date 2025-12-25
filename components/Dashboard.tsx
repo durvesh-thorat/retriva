@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ItemReport, ReportType, User, ViewState } from '../types';
-import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, HelpCircle, X, Check, Activity, Clock } from 'lucide-react';
+import { Search, MapPin, SearchX, Box, Sparkles, ArrowRight, ScanLine, Loader2, RefreshCw, History, CheckCircle2, AlertCircle, Scan, Zap, Layers, Network, Wrench, ShieldCheck, Cpu, ChevronRight, Fingerprint, Radar, ChevronLeft, Target, User as UserIcon, WifiOff, HelpCircle, X, Check, Activity, Clock, Plus } from 'lucide-react';
 import ReportDetails from './ReportDetails';
 import { parseSearchQuery, findSmartMatches, getMatchTier } from '../services/geminiService';
 
@@ -97,7 +97,7 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onClick }) => {
 };
 
 // --- AI DISCOVERY HUB (SPATIAL CANVAS REDESIGN) ---
-const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: ItemReport[], onCompare: any }) => {
+const AIDiscoveryHub = ({ user, reports, onCompare, onNavigate }: { user: User, reports: ItemReport[], onCompare: any, onNavigate: (view: ViewState) => void }) => {
   const myOpenLostReports = useMemo(() => reports.filter(r => r.reporterId === user.id && r.status === 'OPEN' && r.type === ReportType.LOST), [reports, user.id]);
   const [selectedItem, setSelectedItem] = useState<ItemReport | null>(null);
   
@@ -130,7 +130,7 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
     }
   };
 
-  if (myOpenLostReports.length === 0) return null; 
+  // Removed early return to show empty state
 
   // Hide attribute cards when viewing results to prevent overlap
   const showFloatingCards = selectedItem && scanState !== 'complete';
@@ -158,31 +158,41 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
              </div>
              
              <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
-                 {myOpenLostReports.map(item => (
-                     <div 
-                        key={item.id}
-                        onClick={() => setSelectedItem(item)}
-                        className={`group relative p-3 rounded-2xl border transition-all cursor-pointer overflow-hidden flex items-center gap-3 ${
-                            selectedItem?.id === item.id 
-                            ? 'bg-white/10 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]' 
-                            : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
-                        }`}
-                     >
-                        <div className="w-10 h-10 rounded-lg bg-black/50 overflow-hidden shrink-0 border border-white/10 relative">
-                            {item.imageUrls[0] ? <img src={item.imageUrls[0]} className="w-full h-full object-cover" /> : <Box className="w-4 h-4 m-auto text-slate-500" />}
-                            {selectedItem?.id === item.id && <div className="absolute inset-0 bg-indigo-500/20 mix-blend-overlay"></div>}
+                 {myOpenLostReports.length === 0 ? (
+                    <div className="mt-10 text-center opacity-50 px-4">
+                        <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-3 border border-white/5">
+                            <SearchX className="w-5 h-5 text-slate-400" />
                         </div>
-                        <div className="min-w-0">
-                            <p className={`text-xs font-bold truncate ${selectedItem?.id === item.id ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>{item.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] text-slate-500 uppercase">{item.category}</span>
+                        <p className="text-xs font-bold text-slate-400">No Active Reports</p>
+                        <p className="text-[10px] text-slate-600 mt-1">Your lost items will appear here.</p>
+                    </div>
+                 ) : (
+                    myOpenLostReports.map(item => (
+                        <div 
+                            key={item.id}
+                            onClick={() => setSelectedItem(item)}
+                            className={`group relative p-3 rounded-2xl border transition-all cursor-pointer overflow-hidden flex items-center gap-3 ${
+                                selectedItem?.id === item.id 
+                                ? 'bg-white/10 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]' 
+                                : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
+                            }`}
+                        >
+                            <div className="w-10 h-10 rounded-lg bg-black/50 overflow-hidden shrink-0 border border-white/10 relative">
+                                {item.imageUrls[0] ? <img src={item.imageUrls[0]} className="w-full h-full object-cover" /> : <Box className="w-4 h-4 m-auto text-slate-500" />}
+                                {selectedItem?.id === item.id && <div className="absolute inset-0 bg-indigo-500/20 mix-blend-overlay"></div>}
                             </div>
+                            <div className="min-w-0">
+                                <p className={`text-xs font-bold truncate ${selectedItem?.id === item.id ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>{item.title}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-[9px] text-slate-500 uppercase">{item.category}</span>
+                                </div>
+                            </div>
+                            {selectedItem?.id === item.id && (
+                            <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.8)] animate-pulse"></div>
+                            )}
                         </div>
-                        {selectedItem?.id === item.id && (
-                           <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.8)] animate-pulse"></div>
-                        )}
-                     </div>
-                 ))}
+                    ))
+                 )}
              </div>
         </div>
 
@@ -299,12 +309,31 @@ const AIDiscoveryHub = ({ user, reports, onCompare }: { user: User, reports: Ite
                     </div>
                  </>
              ) : (
-                 <div className="text-center">
-                    <div className="w-20 h-20 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-indigo-500/5">
-                        <Radar className="w-8 h-8 text-indigo-500/50" />
+                 <div className="text-center max-w-md mx-auto p-6 relative z-10">
+                    <div className="w-24 h-24 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-500/5 relative group">
+                        <div className="absolute inset-0 bg-indigo-500/10 rounded-full blur-xl group-hover:bg-indigo-500/20 transition-all"></div>
+                        <Radar className="w-10 h-10 text-indigo-500/50" />
                     </div>
-                    <h3 className="text-xl font-bold text-white mb-2">Discovery Hub Inactive</h3>
-                    <p className="text-slate-500 text-sm">Select an active case from the sidebar to begin.</p>
+                    
+                    {myOpenLostReports.length === 0 ? (
+                        <>
+                           <h3 className="text-2xl font-black text-white mb-3 tracking-tight">Initialize Recovery Scanner</h3>
+                           <p className="text-slate-400 text-sm leading-relaxed mb-8">
+                              You haven't reported any lost items yet. To utilize our <strong>Gemini Semantic Matcher</strong> and find potential matches in the database, please file a report.
+                           </p>
+                           <button 
+                             onClick={() => onNavigate('REPORT_LOST')}
+                             className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-600/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 mx-auto"
+                           >
+                              <Plus className="w-4 h-4" /> Report Lost Item
+                           </button>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="text-xl font-bold text-white mb-2">Discovery Hub Standby</h3>
+                            <p className="text-slate-500 text-sm">Select an active case from the sidebar to begin semantic analysis.</p>
+                        </>
+                    )}
                  </div>
              )}
         </div>
@@ -492,8 +521,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, reports, onNavigate, onReso
           </div>
       </section>
 
-      {/* AI DISCOVERY HUB - Conditionally Rendered */}
-      <AIDiscoveryHub user={user} reports={reports} onCompare={onCompare} />
+      {/* AI DISCOVERY HUB - Always Visible with Empty State logic */}
+      <AIDiscoveryHub user={user} reports={reports} onCompare={onCompare} onNavigate={onNavigate} />
 
       {/* Main Content Feed */}
       <section className="space-y-8">
