@@ -10,7 +10,7 @@ import MatchComparator from './components/MatchComparator';
 import FeaturesPage from './components/FeaturesPage';
 import AIDisclaimerModal from './components/AIDisclaimerModal';
 import { User, ViewState, ItemReport, ReportType, ItemCategory, AppNotification, Chat, Message } from './types';
-import { MessageCircle, Bell, Moon, Sun, User as UserIcon, Plus, SearchX, Box, Loader2, Home } from 'lucide-react';
+import { MessageCircle, Bell, Moon, Sun, User as UserIcon, Plus, SearchX, Box, Loader2 } from 'lucide-react';
 import { findSmartMatches } from './services/geminiService';
 
 // FIREBASE IMPORTS
@@ -721,11 +721,6 @@ const App: React.FC = () => {
               </div>
               
               <div className="flex items-center gap-3">
-                 {/* NEW: Home Button */}
-                 <button onClick={() => { setView('DASHBOARD'); setEditingReport(null); }} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 transition-colors" title="Home">
-                   <Home className="w-5 h-5" />
-                 </button>
-
                  <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 transition-colors">
                    {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                  </button>
