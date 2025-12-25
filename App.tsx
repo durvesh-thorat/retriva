@@ -817,4 +817,15 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                  <span className="opacity-60">Engineered by</span>
-                 <s
+                 <span className="font-cursive text-lg bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent hover:scale-105 transition-transform cursor-default">
+                   4SCRIPT
+                 </span>
+              </div>
+            </div>
+        </footer>
+      )}
+    </div>
+  );
+};
+
+export default App;
