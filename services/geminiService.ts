@@ -1,4 +1,3 @@
-
 import { ItemCategory, GeminiAnalysisResult, ItemReport } from "../types";
 
 // Declare global Puter object from the script tag in index.html
@@ -259,20 +258,22 @@ export const instantImageCheck = async (base64Image: string): Promise<{
 }> => {
   try {
     const text = await callPuterAI(
-      `Safety & Context Analysis for Lost & Found.
+      `Safety & Context Analysis for Campus Lost & Found.
        
-       STRICT RULES:
-       1. REJECT ("HUMAN_PORTRAIT") if the main subject is a live human, selfie, or group photo.
-       2. REJECT ("GORE" / "ANIMAL") if violence, nudity, or dead animals.
-       3. ACCEPT ("DOCUMENT") if it is an ID Card, Student ID, or Document, EVEN IF IT HAS A FACE. We will redact it later.
-       4. ACCEPT ("ITEM") if it is an inanimate object (phone, keys, etc).
+       STRICT MODERATION RULES:
+       1. REJECT ("ANIMAL") if the image contains ANY LIVING BEING (Pet, Dog, Cat, Hamster, Human). 
+          EXCEPTION: Plants and Flowers are ALLOWED.
+       2. REJECT ("HUMAN_PORTRAIT") if the main subject is a live human, selfie, or group photo.
+       3. REJECT ("GORE") if violence, blood, or nudity.
+       4. ACCEPT ("DOCUMENT") if it is an ID Card, Student ID, or Document. (Redaction will apply later).
+       5. ACCEPT ("ITEM") if it is an inanimate object (phone, keys, bottle, plant).
 
        Return JSON: 
        { 
          "violationType": "GORE"|"ANIMAL"|"HUMAN_PORTRAIT"|"NONE", 
          "context": "ITEM"|"DOCUMENT"|"HUMAN",
          "isPrank": boolean, 
-         "reason": "short explanation" 
+         "reason": "short explanation of the violation or content" 
        }`,
        base64Image
     );
@@ -378,13 +379,25 @@ export const mergeDescriptions = async (userDistinguishingFeatures: string, visu
 export const validateReportContext = async (reportData: any): Promise<{ isValid: boolean, reason: string }> => {
     try {
         const text = await callPuterAI(
-          `Validate Report Logic. 
-           Check for:
-           1. Mismatch (e.g. Title says "Laptop" but Category is "Clothing")
-           2. Vague Location (e.g. "On earth")
+          `ACT AS A STRICT LOST & FOUND MODERATOR.
            
-           Return JSON { "isValid": boolean, "reason": string }. 
-           Data: ${JSON.stringify(reportData)}`
+           YOUR JOB:
+           Validate if the following report is for a legitimate LOST PROPERTY ITEM.
+           
+           STRICT BLOCKING RULES (RETURN isValid: false):
+           1. LIVING THINGS: Block any report of lost pets, dogs, cats, animals, or humans. (Exception: Plants/Flowers are ALLOWED).
+           2. METAPHYSICAL/ABSTRACT: Block reports of "Lost Soul", "Lost Dignity", "Lost Hope", "Lost Virginity", "Lost Mind".
+           3. ILLICIT ITEMS: Block drugs, weapons, or illegal contraband.
+           4. NONSENSE: Block gibberish or spam (e.g., "asdfgh").
+           5. MISMATCH: Block if Title says "Laptop" but Category is "Clothing".
+           
+           ALLOW:
+           - Inanimate objects (Electronics, Books, Bottles, Keys, ID Cards).
+           - Plants.
+
+           Data: ${JSON.stringify(reportData)}
+           
+           Return JSON { "isValid": boolean, "reason": "Specific reason for rejection if invalid" }.`
         );
         if (!text) return { isValid: true, reason: "" };
         const result = JSON.parse(cleanJSON(text));
