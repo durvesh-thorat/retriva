@@ -143,7 +143,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
 
   const handleForgotPassword = async () => {
     if (!email) {
-      setError("Please enter your email address first.");
+      setError("Please enter your email address first to reset password.");
       return;
     }
     
@@ -153,14 +153,15 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
 
     try {
       await auth.sendPasswordResetEmail(email);
-      setSuccessMsg("Password reset email sent! Check your inbox.");
+      setSuccessMsg("Password reset email sent! Please check your inbox (and spam folder).");
     } catch (err: any) {
+      console.error("Reset Password Error:", err);
       if (err.code === 'auth/user-not-found') {
         setError("No account found with this email.");
       } else if (err.code === 'auth/invalid-email') {
         setError("Invalid email address.");
       } else {
-        setError("Failed to send reset email. Try again later.");
+        setError(err.message || "Failed to send reset email. Try again later.");
       }
     } finally {
       setIsResetLoading(false);
@@ -240,7 +241,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
       </div>
 
       {/* FLOATING CARD CONTAINER */}
-      {/* MOBILE FIX: Removed overflow-hidden from parent on mobile, added min-h-0 and h-auto to allow growth */}
       <div className="relative z-10 w-full max-w-6xl flex flex-col lg:flex-row bg-[#080808] rounded-[2.5rem] shadow-2xl border border-white/5 ring-1 ring-white/5 lg:max-h-[95vh] h-auto lg:overflow-hidden">
         
         {/* LEFT PANEL - HERO SECTION */}
@@ -348,7 +348,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
         </div>
 
         {/* RIGHT PANEL - Form */}
-        {/* MOBILE FIX: Enable window scrolling by removing strict overflow constraints on mobile */}
         <div className="lg:w-7/12 w-full flex flex-col p-8 lg:p-12 relative bg-[#0c0e14] lg:overflow-y-auto custom-scrollbar rounded-b-[2.5rem] lg:rounded-bl-none lg:rounded-r-[2.5rem]">
            
            <div className="flex justify-between items-center mb-8 shrink-0">

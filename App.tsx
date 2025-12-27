@@ -52,10 +52,10 @@ const App: React.FC = () => {
     return () => window.removeEventListener('retriva-toast', handleToastEvent);
   }, []);
 
-  // SESSION TIMEOUT LOGIC
+  // SESSION TIMEOUT LOGIC (1 HOUR)
   useEffect(() => {
     // Check session duration every minute
-    const SESSION_DURATION = 3 * 60 * 60 * 1000; // 3 hours
+    const SESSION_DURATION = 1 * 60 * 60 * 1000; // 1 hour
     
     const checkSession = () => {
       if (!user) return;
@@ -63,10 +63,13 @@ const App: React.FC = () => {
       const startStr = localStorage.getItem('retriva_session_start');
       if (startStr) {
         const startTime = parseInt(startStr, 10);
-        if (Date.now() - startTime > SESSION_DURATION) {
-           console.log("Session expired. Logging out.");
+        const now = Date.now();
+        
+        // If session exceeded duration
+        if (now - startTime > SESSION_DURATION) {
+           console.log("Session expired (1h limit). Logging out.");
            handleLogout();
-           setToast({ message: "Session expired. Please log in again.", type: 'alert' });
+           setToast({ message: "Session expired due to inactivity. Please log in again.", type: 'alert' });
         }
       } else {
         // If logged in but no start time, set it now
