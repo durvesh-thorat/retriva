@@ -52,6 +52,36 @@ const App: React.FC = () => {
     return () => window.removeEventListener('retriva-toast', handleToastEvent);
   }, []);
 
+  // SESSION TIMEOUT LOGIC
+  useEffect(() => {
+    // Check session duration every minute
+    const SESSION_DURATION = 3 * 60 * 60 * 1000; // 3 hours
+    
+    const checkSession = () => {
+      if (!user) return;
+      
+      const startStr = localStorage.getItem('retriva_session_start');
+      if (startStr) {
+        const startTime = parseInt(startStr, 10);
+        if (Date.now() - startTime > SESSION_DURATION) {
+           console.log("Session expired. Logging out.");
+           handleLogout();
+           setToast({ message: "Session expired. Please log in again.", type: 'alert' });
+        }
+      } else {
+        // If logged in but no start time, set it now
+        localStorage.setItem('retriva_session_start', Date.now().toString());
+      }
+    };
+
+    const interval = setInterval(checkSession, 60000); // Check every minute
+    
+    // Also check immediately on mount
+    checkSession();
+
+    return () => clearInterval(interval);
+  }, [user]);
+
   // 1. AUTH LISTENER: Persist Login & Presence
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
@@ -100,12 +130,18 @@ const App: React.FC = () => {
              setView('DASHBOARD');
           }
 
+          // Ensure session start time is set if missing
+          if (!localStorage.getItem('retriva_session_start')) {
+             localStorage.setItem('retriva_session_start', Date.now().toString());
+          }
+
         } catch (e) {
           console.error("Error fetching user profile", e);
         }
       } else {
         setUser(null);
         setView('AUTH');
+        localStorage.removeItem('retriva_session_start');
       }
       setAuthLoading(false);
     });
@@ -329,6 +365,9 @@ const App: React.FC = () => {
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
+    // Init session timer
+    localStorage.setItem('retriva_session_start', Date.now().toString());
+
     // Don't force DASHBOARD here, Auth Listener handles view restoration
     db.collection('users').doc(loggedInUser.id).update({ isOnline: true, lastSeen: Date.now() });
     setTimeout(() => addNotification('Welcome!', `Logged in as ${loggedInUser.name}`, 'system'), 1000);
@@ -344,6 +383,7 @@ const App: React.FC = () => {
       // Clear Local Storage State
       localStorage.removeItem('retriva_view');
       localStorage.removeItem('retriva_active_chat');
+      localStorage.removeItem('retriva_session_start');
       // We keep 'retriva_theme' as user preference usually persists per device
 
       setUser(null);
@@ -398,6 +438,7 @@ const App: React.FC = () => {
         // Clear storage
         localStorage.removeItem('retriva_view');
         localStorage.removeItem('retriva_active_chat');
+        localStorage.removeItem('retriva_session_start');
 
         setUser(null);
         setView('AUTH');
