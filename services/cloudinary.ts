@@ -1,8 +1,11 @@
-
 import { compressImage } from './imageCompression';
 
-const CLOUD_NAME = "dcvdiiwwm";
-const UPLOAD_PRESET = "retriva_unsigned";
+// Safe access to environment variables
+const env = (import.meta as any).env || {};
+
+// Use environment variables from Vercel or fallback to known defaults
+const CLOUD_NAME = env.VITE_CLOUDINARY_CLOUD_NAME || "dcvdiiwwm";
+const UPLOAD_PRESET = env.VITE_CLOUDINARY_UPLOAD_PRESET || "retriva_unsigned";
 
 export const uploadImage = async (file: File): Promise<string> => {
   if (!file) throw new Error("No file selected");
@@ -32,7 +35,8 @@ export const uploadImage = async (file: File): Promise<string> => {
     console.warn("Cloudinary upload failed. activating local fallback...", error);
 
     // 2. Fallback: Local Compression (Base64)
-    // If Cloudinary fails, we convert to Base64 and compress it so it fits in Firestore.
+    // If Cloudinary fails (e.g. missing Vercel env vars), we convert to Base64 
+    // and compress it so it fits in Firestore.
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();

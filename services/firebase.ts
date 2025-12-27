@@ -3,30 +3,35 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 
 // ------------------------------------------------------------------
-// IMPORTANT: CONFIGURATION REQUIRED
-// The keys below are for a demo project (retriva-700f9).
-// If you are hosting this app on your own domain (e.g. Vercel),
-// you MUST replace these values with your own Firebase Project Config.
-//
-// 1. Go to Firebase Console (https://console.firebase.google.com)
-// 2. Create a new project (or use existing)
-// 3. Go to Project Settings > General > "Your apps"
-// 4. Copy the "firebaseConfig" object and replace the one below.
-// 5. THEN, go to Auth > Settings > Authorized Domains and add your Vercel domain.
+// CONFIGURATION
+// We use a safe check for 'import.meta.env' to prevent crashes.
+// If env vars are missing, we fallback to the provided hardcoded values.
 // ------------------------------------------------------------------
 
+// Safe access to environment variables
+const env = (import.meta as any).env || {};
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAIgzM-eqJFxuPN3mBOh1XLnWxlUKxCcA4",
-  authDomain: "retriva-700f9.firebaseapp.com",
-  projectId: "retriva-700f9",
-  storageBucket: "retriva-700f9.firebasestorage.app",
-  messagingSenderId: "654844686844",
-  appId: "1:654844686844:web:0a07f0a02a84cfa4c04279",
-  measurementId: "G-1VS8EVKFVK"
+  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyAIgzM-eqJFxuPN3mBOh1XLnWxlUKxCcA4",
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "retriva-700f9.firebaseapp.com",
+  projectId: env.VITE_FIREBASE_PROJECT_ID || "retriva-700f9",
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "retriva-700f9.firebasestorage.app",
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "654844686844",
+  appId: env.VITE_FIREBASE_APP_ID || "1:654844686844:web:0a07f0a02a84cfa4c04279",
+  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || "G-1VS8EVKFVK"
 };
 
+// Log warning only if hardcoded fallback is also missing (unlikely given code above)
+if (!firebaseConfig.apiKey) {
+  console.error("RETRIVA CRITICAL ERROR: Firebase API Key is missing.");
+}
+
 if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+  try {
+    firebase.initializeApp(firebaseConfig);
+  } catch (e) {
+    console.error("Firebase Initialization Error:", e);
+  }
 }
 
 export const auth = firebase.auth();
