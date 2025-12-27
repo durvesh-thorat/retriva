@@ -66,8 +66,7 @@ const calculateTextSimilarity = (str1: string, str2: string): number => {
     return intersection.size / union.size;
 };
 
-// --- HELPER: PUTER WRAPPER ---
-// Updated to accept string array for images
+// --- HELPER: PUTER WRAPPER (FIXED) ---
 const callPuterAI = async (
   prompt: string, 
   images?: string | string[], 
@@ -78,44 +77,74 @@ const callPuterAI = async (
       return null;
   }
 
-  try {
-    const fullPrompt = systemInstruction 
+  const fullPrompt = systemInstruction 
       ? `SYSTEM INSTRUCTION: ${systemInstruction}\n\nUSER QUERY: ${prompt}` 
       : prompt;
 
-    let response;
-    
-    try {
-        if (images) {
-           // Pass images (single string or array) directly to puter
-           response = await puter.ai.chat(fullPrompt, images);
+  // OPTIMIZATION: Puter V2 works best with a single image string.
+  // Sending an array of large base64 strings often causes "No response" timeouts.
+  let imagePayload: string | undefined = undefined;
+  if (images) {
+      if (Array.isArray(images)) {
+          // Take the first image only to reduce payload size
+          imagePayload = images.length > 0 ? images[0] : undefined;
+      } else {
+          imagePayload = images;
+      }
+  }
+
+  const MAX_RETRIES = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        let response;
+        
+        if (imagePayload) {
+           response = await puter.ai.chat(fullPrompt, imagePayload);
         } else {
            response = await puter.ai.chat(fullPrompt);
         }
-    } catch (innerError: any) {
+
+        // Check for specific Puter failure object
+        if (typeof response === 'object' && response !== null) {
+            if (response.success === false) {
+                 throw new Error(response.error || "Puter returned success: false");
+            }
+        }
+
+        if (typeof response === 'string') return response;
+        if (response?.message?.content) return response.message.content;
+        if (response?.text) return response.text;
+        
+        return JSON.stringify(response);
+
+      } catch (innerError: any) {
+        lastError = innerError;
+        console.warn(`[Puter] Attempt ${attempt} failed:`, innerError);
+
+        // Handle Auth Challenge
         if (innerError?.message?.includes('401') || innerError?.code === 401) {
              console.log("[Puter] Auth required. Attempting to sign in...");
-             await puter.auth.signIn();
-             if (images) {
-                response = await puter.ai.chat(fullPrompt, images);
-             } else {
-                response = await puter.ai.chat(fullPrompt);
+             try {
+                 await puter.auth.signIn();
+                 continue; // Retry immediately
+             } catch (authErr) {
+                 console.error("Puter Auth failed", authErr);
+                 return null;
              }
-        } else {
-            throw innerError;
         }
-    }
 
-    if (typeof response === 'string') return response;
-    if (response?.message?.content) return response.message.content;
-    if (response?.text) return response.text;
-    
-    return JSON.stringify(response);
-
-  } catch (error: any) {
-    console.error(`[Puter] AI Error:`, error);
-    return null;
+        // For "No response" or other network errors, wait before retrying (Exponential Backoff)
+        if (attempt < MAX_RETRIES) {
+             const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+             await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
   }
+
+  console.error(`[Puter] AI Error after ${MAX_RETRIES} attempts:`, lastError);
+  return null;
 };
 
 // --- FALLBACK LOGIC ---
@@ -174,40 +203,30 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
 
     if (candidates.length === 0) return [];
 
-    // Removed strict category filtering to allow for user classification errors (e.g. Electronics vs Accessories)
-    // We limit candidates to top 15 by recency to save tokens
-    if (candidates.length > 15) candidates = candidates.slice(0, 15);
+    // Limit candidates to 8 to reduce context window size
+    if (candidates.length > 8) candidates = candidates.slice(0, 8);
 
     let matchResults: MatchCandidate[] = [];
     let usedAI = false;
     
-    // Use FULL keys so AI understands context, including SPECS if available
+    // Use simplified keys to save tokens
     const aiCandidates = candidates.map(c => ({ 
         id: c.id, 
         title: c.title, 
-        description: c.description,
-        specs: c.specs || {}, // Pass structured data to AI
-        location: c.location,
-        category: c.category,
-        visual_tags: c.tags.join(', ')
+        desc: c.description.slice(0, 100), // Truncate for performance
+        cat: c.category
     }));
 
-    const sourceData = `TITLE: ${sourceItem.title}. DESC: ${sourceItem.description}. CAT: ${sourceItem.category}. SPECS: ${JSON.stringify(sourceItem.specs || {})}. LOC: ${sourceItem.location}.`;
+    const sourceData = `ITEM: ${sourceItem.title}. DESC: ${sourceItem.description.slice(0, 150)}. CAT: ${sourceItem.category}.`;
 
     try {
         const fullPrompt = `
-          ACT AS A LOST & FOUND MATCHER.
+          ACT AS A MATCHER.
+          TARGET: ${sourceData}
+          CANDIDATES: ${JSON.stringify(aiCandidates)}
           
-          TARGET ITEM: ${sourceData}
-          CANDIDATES DATABASE: ${JSON.stringify(aiCandidates)}
-          
-          INSTRUCTIONS:
-          1. Analyze the semantic meaning AND specific specs (e.g. Serial numbers are definitive).
-          2. Ignore minor category mismatches (e.g. Electronics vs Other).
-          3. Return a JSON object with a list of matches that have a probability > 40%.
-          
-          JSON FORMAT: 
-          { "matches": [ { "id": "candidate_id", "confidence": number } ] }
+          TASK: Return JSON of matches > 40% probability.
+          FORMAT: { "matches": [ { "id": "candidate_id", "confidence": number } ] }
         `;
         
         const text = await callPuterAI(fullPrompt);
@@ -219,7 +238,6 @@ export const findSmartMatches = async (sourceItem: ItemReport, allReports: ItemR
                 matchResults = data.matches || [];
                 usedAI = true;
             } catch (jsonErr) {
-                 // Try aggressive cleanup for control characters
                  const sanitized = cleanText.replace(/[\x00-\x1F]/g, " ");
                  const data = JSON.parse(sanitized);
                  matchResults = data.matches || [];
@@ -257,23 +275,22 @@ export const instantImageCheck = async (base64Image: string): Promise<{
   reason: string;
 }> => {
   try {
+    // Simplify prompt to reduce token usage and improve response speed
     const text = await callPuterAI(
-      `Safety & Context Analysis for Campus Lost & Found.
-       
-       STRICT MODERATION RULES:
-       1. REJECT ("ANIMAL") if the image contains ANY LIVING BEING (Pet, Dog, Cat, Hamster, Human). 
-          EXCEPTION: Plants and Flowers are ALLOWED.
-       2. REJECT ("HUMAN_PORTRAIT") if the main subject is a live human, selfie, or group photo.
-       3. REJECT ("GORE") if violence, blood, or nudity.
-       4. ACCEPT ("DOCUMENT") if it is an ID Card, Student ID, or Document. (Redaction will apply later).
-       5. ACCEPT ("ITEM") if it is an inanimate object (phone, keys, bottle, plant).
+      `Analyze image for Lost & Found safety.
+       RULES:
+       1. REJECT if Animal/Pet ("ANIMAL").
+       2. REJECT if Selfie/Person ("HUMAN_PORTRAIT").
+       3. REJECT if Gore/Violence ("GORE").
+       4. ACCEPT if ID Card ("DOCUMENT").
+       5. ACCEPT if Object ("ITEM").
 
-       Return JSON: 
+       JSON OUTPUT: 
        { 
          "violationType": "GORE"|"ANIMAL"|"HUMAN_PORTRAIT"|"NONE", 
          "context": "ITEM"|"DOCUMENT"|"HUMAN",
          "isPrank": boolean, 
-         "reason": "short explanation of the violation or content" 
+         "reason": "string" 
        }`,
        base64Image
     );
@@ -296,12 +313,8 @@ export const instantImageCheck = async (base64Image: string): Promise<{
 export const detectRedactionRegions = async (base64Image: string): Promise<number[][]> => {
   try {
     const text = await callPuterAI(
-      `Identify bounding boxes [ymin, xmin, ymax, xmax] (scale 0-1000) for sensitive info.
-       TARGETS: 
-       1. FACES (Both real faces and ID card photos)
-       2. ID NUMBERS / NAMES / ADDRESSES
-       
-       Return JSON { "regions": [[ymin, xmin, ymax, xmax], ...] }`,
+      `Find bounding boxes [ymin, xmin, ymax, xmax] (0-1000) for FACES or ID NUMBERS.
+       JSON: { "regions": [[ymin, xmin, ymax, xmax]] }`,
        base64Image
     );
     
@@ -323,22 +336,14 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
 }> => {
   try {
     const text = await callPuterAI(
-       `Extract strict technical item details.
-        
-        OUTPUT JSON FORMAT:
+       `Extract item details JSON:
         {
           "title": "Short title",
           "category": "Electronics" | "Clothing" | "Accessories" | "Stationery" | "ID Cards" | "Other",
-          "color": "Dominant Color",
-          "tags": ["tag1", "tag2"],
-          "specs": {
-             // IF ELECTRONICS: "brand", "model", "serialNumber" (if visible)
-             // IF CLOTHING: "brand", "size" (if visible), "material"
-             // IF ID CARD: "issuer", "type"
-             // IF KEYS: "count", "type" (car/house), "keychain"
-             // OTHERWISE: generic key-value pairs of visible text/data
-          },
-          "distinguishingFeatures": ["scratch on screen", "sticker", "dent"]
+          "color": "Color",
+          "tags": ["tag1"],
+          "specs": { "brand": "Brand", "model": "Model" },
+          "distinguishingFeatures": ["scratch", "dent"]
         }`,
         base64Image
     );
@@ -365,10 +370,9 @@ export const extractVisualDetails = async (base64Image: string): Promise<{
 export const mergeDescriptions = async (userDistinguishingFeatures: string, visualData: any): Promise<string> => {
     try {
         const text = await callPuterAI(
-          `Write a concise, factual description for a Lost & Found report.
-           Focus on identifiers (Brand, Specs, Markings).
-           User Input: "${userDistinguishingFeatures}"
-           AI Visual Data: ${JSON.stringify(visualData)}`,
+          `Write concise Lost&Found description.
+           User: "${userDistinguishingFeatures}"
+           Visual: ${JSON.stringify(visualData)}`,
         );
         return text || userDistinguishingFeatures;
     } catch (e) {
@@ -379,25 +383,10 @@ export const mergeDescriptions = async (userDistinguishingFeatures: string, visu
 export const validateReportContext = async (reportData: any): Promise<{ isValid: boolean, reason: string }> => {
     try {
         const text = await callPuterAI(
-          `ACT AS A STRICT LOST & FOUND MODERATOR.
-           
-           YOUR JOB:
-           Validate if the following report is for a legitimate LOST PROPERTY ITEM.
-           
-           STRICT BLOCKING RULES (RETURN isValid: false):
-           1. LIVING THINGS: Block any report of lost pets, dogs, cats, animals, or humans. (Exception: Plants/Flowers are ALLOWED).
-           2. METAPHYSICAL/ABSTRACT: Block reports of "Lost Soul", "Lost Dignity", "Lost Hope", "Lost Virginity", "Lost Mind".
-           3. ILLICIT ITEMS: Block drugs, weapons, or illegal contraband.
-           4. NONSENSE: Block gibberish or spam (e.g., "asdfgh").
-           5. MISMATCH: Block if Title says "Laptop" but Category is "Clothing".
-           
-           ALLOW:
-           - Inanimate objects (Electronics, Books, Bottles, Keys, ID Cards).
-           - Plants.
-
-           Data: ${JSON.stringify(reportData)}
-           
-           Return JSON { "isValid": boolean, "reason": "Specific reason for rejection if invalid" }.`
+          `Validate Lost & Found Item.
+           Block: Animals, Illicit, Nonsense.
+           JSON: { "isValid": boolean, "reason": "string" }.
+           Data: ${JSON.stringify(reportData)}`
         );
         if (!text) return { isValid: true, reason: "" };
         const result = JSON.parse(cleanJSON(text));
@@ -418,8 +407,7 @@ export const analyzeItemDescription = async (
           Output JSON: { "isViolating": boolean, "violationType": string, "summary": string, "tags": string[] }
         `;
         
-        const img = base64Images.length > 0 ? base64Images[0] : undefined;
-        const text = await callPuterAI(prompt, img);
+        const text = await callPuterAI(prompt, base64Images);
 
         if (!text) throw new Error("Failed");
         
@@ -469,58 +457,27 @@ export const parseSearchQuery = async (query: string): Promise<{ userStatus: 'LO
 export const compareItems = async (item1: ItemReport, item2: ItemReport): Promise<ComparisonResult> => {
     try {
         // Collect images from both items for visual comparison
+        // Optimization: Only use the first image from each to reduce payload
         const imagesToAnalyze: string[] = [];
         if (item1.imageUrls?.[0]) imagesToAnalyze.push(item1.imageUrls[0]);
         if (item2.imageUrls?.[0]) imagesToAnalyze.push(item2.imageUrls[0]);
 
         const prompt = `
-           You are an expert Lost & Found Verification Specialist.
+           Compare Item A and Item B. Same object?
            
-           CONTEXT:
-           We are trying to match a specific "Lost Item" (Item A) with a potential "Found Item" (Item B).
-           Your sole job is to determine if these two reports refer to the **SAME PHYSICAL OBJECT**.
-           
-           INPUT DATA:
-           [ITEM A - ${item1.type}]
-           - Title: "${item1.title}"
-           - Description: "${item1.description}"
-           - Category: "${item1.category}"
-           - Specs: ${JSON.stringify(item1.specs || {})}
-           - Visual Tags: "${item1.tags.join(', ')}"
-           
-           [ITEM B - ${item2.type}]
-           - Title: "${item2.title}"
-           - Description: "${item2.description}"
-           - Category: "${item2.category}"
-           - Specs: ${JSON.stringify(item2.specs || {})}
-           - Visual Tags: "${item2.tags.join(', ')}"
+           A: ${item1.title}, ${item1.description}, ${item1.category}
+           B: ${item2.title}, ${item2.description}, ${item2.category}
 
-           VISUAL EVIDENCE:
-           ${imagesToAnalyze.length} images provided.
-
-           ANALYSIS INSTRUCTIONS:
-           1. **ACCOUNT FOR CIRCUMSTANCE**: Lighting conditions, camera angles, and user description accuracy may vary. Do NOT treat minor lighting/angle differences as physical differences.
-           2. **LOOK FOR IDENTIFIERS**: Focus on Brands, Logos, Models, Unique Scratches, Stickers, or distinctive wear patterns.
-           3. **IDENTIFY DEAL-BREAKERS**: A mismatch is only valid if it proves they are different objects (e.g. Different Brand, Different number of buttons, clearly different shape).
-           4. **VERDICT**: If they look like the same model and color with no visible contradictions, the score should be HIGH.
-
-           SCORING GUIDE:
-           - 95-100%: DEFINITIVE (Matching Serial # or unique wear/damage).
-           - 80-94%: HIGH PROBABILITY (Identical make/model/color, no contradictions).
-           - 50-79%: PLAUSIBLE (Same generic item type & color, but vague details).
-           - 0-49%: MISMATCH (Different brand, feature, or form factor).
-
-           OUTPUT FORMAT (JSON ONLY):
+           OUTPUT JSON:
            { 
-              "confidence": number (Integer 0-100), 
-              "explanation": "Write a verdict for the user. Example: 'These appear to be the same Logitech mouse. Both have the same matte black finish and shape. The lighting is different, but the form factor matches.'", 
-              "similarities": ["List key matching features"], 
-              "differences": ["Only list REAL physical contradictions (e.g. 'Different Logo'), ignore lighting/angle"] 
+              "confidence": number (0-100), 
+              "explanation": "string", 
+              "similarities": ["string"], 
+              "differences": ["string"] 
            }
         `;
 
-        // Pass array of images (1 or 2 images) to the AI
-        const text = await callPuterAI(prompt, imagesToAnalyze.length > 0 ? imagesToAnalyze : undefined);
+        const text = await callPuterAI(prompt, imagesToAnalyze);
 
         if (!text) throw new Error("No response");
         
@@ -530,42 +487,21 @@ export const compareItems = async (item1: ItemReport, item2: ItemReport): Promis
         try {
             result = JSON.parse(cleanedText);
         } catch (parseError: any) {
-            // FIX for "Bad control character in string literal" error
-            // Often occurs when AI puts literal newlines in the explanation string
-            if (parseError.message.includes("Bad control character") || parseError.message.includes("JSON")) {
-                // Aggressive fix: remove all control characters (newlines, tabs) to make it valid single-line JSON
-                // We assume the AI output newlines were mostly for formatting, not content critical structure.
-                const sanitized = cleanedText.replace(/[\x00-\x1F]/g, " ");
-                result = JSON.parse(sanitized);
-            } else {
-                throw parseError;
-            }
+            const sanitized = cleanedText.replace(/[\x00-\x1F]/g, " ");
+            result = JSON.parse(sanitized);
         }
         
-        // --- SCORE NORMALIZATION LOGIC ---
         let conf = result.confidence;
-        
-        // Fix: Some models output "1" to mean "100% / True". 
-        // If score is exactly 1, and the explanation is positive, treat as 100%.
-        if (conf === 1) {
-             conf = 100;
-        } else if (conf < 1 && conf > 0) {
-             // Handle decimal (0.95 -> 95)
-             conf = conf * 100;
-        }
-        
-        // Ensure integer
+        if (conf === 1) conf = 100;
+        else if (conf < 1 && conf > 0) conf = conf * 100;
         conf = Math.round(conf);
         
-        // --- LOGIC SAFETY NET ---
-        // If texts are highly similar (Jaccard > 0.8), don't let AI hallucinate a very low score.
         const textSim = calculateTextSimilarity(item1.title, item2.title);
         if (textSim > 0.8 && conf < 60) {
-            conf = 75; // Boost to "Plausible" if title is identical but AI was unsure visually
-            result.explanation += " (Score boosted due to exact title match).";
+            conf = 75; 
+            result.explanation += " (Title match boost)";
         }
         
-        // Safety cap
         if (conf > 100) conf = 100;
 
         return {
