@@ -3,27 +3,30 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 
 // ------------------------------------------------------------------
-// CONFIGURATION
-// We use a safe check for 'import.meta.env' to prevent crashes.
-// If env vars are missing, we fallback to the provided hardcoded values.
+// VERCEL DEPLOYMENT GUIDE:
+// 1. Go to Vercel Project Settings -> Environment Variables.
+// 2. Add the keys below (VITE_FIREBASE_API_KEY, etc.) with your new values.
+// 3. Redeploy the project.
+//
+// NOTE: We use direct 'import.meta.env.KEY' access here. 
+// This is required for Vite/Vercel to correctly replace the variables 
+// during the production build optimization.
 // ------------------------------------------------------------------
 
-// Safe access to environment variables
-const env = (import.meta as any).env || {};
-
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyAIgzM-eqJFxuPN3mBOh1XLnWxlUKxCcA4",
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "retriva-700f9.firebaseapp.com",
-  projectId: env.VITE_FIREBASE_PROJECT_ID || "retriva-700f9",
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "retriva-700f9.firebasestorage.app",
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "654844686844",
-  appId: env.VITE_FIREBASE_APP_ID || "1:654844686844:web:0a07f0a02a84cfa4c04279",
-  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || "G-1VS8EVKFVK"
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID,
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Log warning only if hardcoded fallback is also missing (unlikely given code above)
+// Safety check to warn in console if keys are missing
 if (!firebaseConfig.apiKey) {
   console.error("RETRIVA CRITICAL ERROR: Firebase API Key is missing.");
+  console.error("If you are on Vercel, ensure you have added 'VITE_FIREBASE_API_KEY' in Settings > Environment Variables.");
 }
 
 if (!firebase.apps.length) {

@@ -1,11 +1,9 @@
 import { compressImage } from './imageCompression';
 
-// Safe access to environment variables
-const env = (import.meta as any).env || {};
-
-// Use environment variables from Vercel or fallback to known defaults
-const CLOUD_NAME = env.VITE_CLOUDINARY_CLOUD_NAME || "dcvdiiwwm";
-const UPLOAD_PRESET = env.VITE_CLOUDINARY_UPLOAD_PRESET || "retriva_unsigned";
+// VERCEL CONFIG: Add these to Environment Variables in Vercel Dashboard
+// Direct access ensures Vite replaces them at build time.
+const CLOUD_NAME = (import.meta as any).env.VITE_CLOUDINARY_CLOUD_NAME || "dcvdiiwwm";
+const UPLOAD_PRESET = (import.meta as any).env.VITE_CLOUDINARY_UPLOAD_PRESET || "retriva_unsigned";
 
 export const uploadImage = async (file: File): Promise<string> => {
   if (!file) throw new Error("No file selected");
